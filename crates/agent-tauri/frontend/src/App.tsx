@@ -19891,6 +19891,12 @@ export default function App() {
     Boolean(ingestGuardrailModel.trim()) ||
     ingestionGuardrailMode !== "" ||
     allowUnsafeIngest;
+  const showMemoryContextControls =
+    loadMemory ||
+    Boolean(memoryBackend.trim()) ||
+    Boolean(memoryTopics.trim()) ||
+    memoryBackends.length > 0 ||
+    Boolean(memoryBackendProbe);
   const runControlVisualSection: ActiveSection =
     activeSection === "approvals" ? "approvals" : "chat";
   const pendingApprovalCount = approvals.filter(
@@ -26246,17 +26252,6 @@ export default function App() {
             {activeSection === "memory" ? (
             <div className="operation-group">
               <OperationTitle title="Memory" section="memory" />
-              <label>
-                <FieldLabel icon="memory" section="memory">
-                  Topics
-                </FieldLabel>
-                <input
-                  value={memoryTopics}
-                  onChange={(e) => setMemoryTopics(e.target.value)}
-                  placeholder="finance, ops"
-                  disabled={running}
-                />
-              </label>
               <div className="button-grid">
                 <button
                   type="button"
@@ -26276,30 +26271,6 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  title="List available memory backends."
-                  onClick={() => void reviewMemoryBackends()}
-                  disabled={running}
-                >
-                  <ButtonLabel icon="setup">Backends</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Probe the selected memory backend and topic filter."
-                  onClick={() => void probeMemoryBackend()}
-                  disabled={running}
-                >
-                  <ButtonLabel icon="trace">Probe</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Turn memory loading on and preview the next agent context."
-                  onClick={() => void previewWithMemoryFromOps()}
-                  disabled={running}
-                >
-                  <ButtonLabel icon="context">Preview</ButtonLabel>
-                </button>
-                <button
-                  type="button"
                   title="Create a memory from Value."
                   onClick={() => void createMemoryFromOps()}
                   disabled={running || !opsValue.trim()}
@@ -26307,6 +26278,58 @@ export default function App() {
                   <ButtonLabel icon="memory">Add</ButtonLabel>
                 </button>
               </div>
+              <details
+                className="context-more-controls"
+                style={sectionThemeStyle("memory")}
+                open={showMemoryContextControls}
+              >
+                <summary title="Show topic filters, backend checks, and context preview">
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="context" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>Memory context</strong>
+                    <span>Topics, backends, preview</span>
+                  </span>
+                </summary>
+                <label>
+                  <FieldLabel icon="memory" section="memory">
+                    Topics
+                  </FieldLabel>
+                  <input
+                    value={memoryTopics}
+                    onChange={(e) => setMemoryTopics(e.target.value)}
+                    placeholder="finance, ops"
+                    disabled={running}
+                  />
+                </label>
+                <div className="button-grid">
+                  <button
+                    type="button"
+                    title="List available memory backends."
+                    onClick={() => void reviewMemoryBackends()}
+                    disabled={running}
+                  >
+                    <ButtonLabel icon="setup">Backends</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="Probe the selected memory backend and topic filter."
+                    onClick={() => void probeMemoryBackend()}
+                    disabled={running}
+                  >
+                    <ButtonLabel icon="trace">Probe</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="Turn memory loading on and preview the next agent context."
+                    onClick={() => void previewWithMemoryFromOps()}
+                    disabled={running}
+                  >
+                    <ButtonLabel icon="context">Preview</ButtonLabel>
+                  </button>
+                </div>
+              </details>
               {memoryBackends.length ? (
                 <div className="memory-review">
                   {memoryBackends.map((backend) => (

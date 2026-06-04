@@ -23821,13 +23821,13 @@ export default function App() {
             className="context-more-controls"
             style={sectionThemeStyle("trace")}
           >
-            <summary title="Show additional trace settings">
+            <summary title="Show trace replay and cleanup tools">
               <span className="advanced-controls-icon" aria-hidden="true">
-                <AppIcon name="setup" />
+                <AppIcon name="trace" />
               </span>
               <span className="advanced-controls-copy">
-                <strong>More settings</strong>
-                <span>Prompt recovery, replay, comparison, and cleanup</span>
+                <strong>Trace tools</strong>
+                <span>Recovery, replay, comparison, and cleanup</span>
               </span>
             </summary>
             <div className="context-more-grid">

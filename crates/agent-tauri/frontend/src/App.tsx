@@ -21040,13 +21040,13 @@ export default function App() {
               className="context-more-controls"
               style={sectionThemeStyle("chat")}
             >
-              <summary title="Show additional context settings">
+              <summary title="Show run and context settings">
                 <span className="advanced-controls-icon" aria-hidden="true">
-                  <AppIcon name="setup" />
+                  <AppIcon name="control" />
                 </span>
                 <span className="advanced-controls-copy">
-                  <strong>More settings</strong>
-                  <span>Advanced controls</span>
+                  <strong>Run settings</strong>
+                  <span>Tools, context, safety, and routing</span>
                 </span>
               </summary>
               <div className="context-more-grid">

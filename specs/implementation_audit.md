@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App artifacts dormant-action suppression | Done | `crates/agent-tauri/frontend/src/App.tsx` | The fresh Artifacts workspace now leads with List while hiding Generate until artifact staging begins and hiding Show, Open, and Download until a generated artifact id is staged, preserving generated-output workflows without opening the section with disabled target controls. |
 | App skills dormant-action suppression | Done | `crates/agent-tauri/frontend/src/App.tsx` | The fresh Skills workspace now leads with List while hiding Show until a skill target id is staged and hiding Preview until skills are loaded or skill loading is already enabled, preserving imported-skill review without opening the section with disabled controls. |
 | App prompts dormant-action suppression | Done | `crates/agent-tauri/frontend/src/App.tsx` | The fresh Prompts workspace now leads with List while hiding Save until prompt staging begins and hiding Show, Use, Run, and Preview until a prompt id is staged, preserving saved-prompt workflows without opening the section with disabled controls. |
 | App approvals dormant-run action suppression | Done | `crates/agent-tauri/frontend/src/App.tsx` | The fresh Approvals control panel now keeps the approval summary and empty state visible while hiding Review, Approve, Reject, Stop, and Trace until a run is active, a previous run exists, or approval records are loaded. |

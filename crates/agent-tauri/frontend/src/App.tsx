@@ -19868,6 +19868,8 @@ export default function App() {
     capabilityDrafts.length > 0 ||
     Boolean(capabilityDoctorReport) ||
     capabilityKind !== "skill";
+  const showArtifactGenerateAction = Boolean(opsId.trim() || opsValue.trim());
+  const showGeneratedArtifactTargetActions = Boolean(opsId.trim());
   const showSkillTargetAction = Boolean(opsId.trim());
   const showSkillPreviewAction = loadSkills || skillDocs.length > 0;
   const modelDoctorCardTone = modelDoctorReport
@@ -30479,38 +30481,44 @@ export default function App() {
                 >
                   <ButtonLabel icon="artifact">List</ButtonLabel>
                 </button>
-                <button
-                  type="button"
-                  title="Generate a document artifact using Id as the format and Value as content."
-                  onClick={() => void generateArtifactFromOps()}
-                  disabled={running || !opsId.trim() || !opsValue.trim()}
-                >
-                  <ButtonLabel icon="prompt">Generate</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Show generated artifact Id."
-                  onClick={() => void showGeneratedArtifactFromOps()}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="artifact">Show</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Open generated artifact Id in the OS default app."
-                  onClick={() => void openGeneratedArtifactFromOps()}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="context">Open</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Download generated artifact Id to this device."
-                  onClick={() => void downloadGeneratedArtifactFromOps()}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="artifact">Download</ButtonLabel>
-                </button>
+                {showArtifactGenerateAction ? (
+                  <button
+                    type="button"
+                    title="Generate a document artifact using Id as the format and Value as content."
+                    onClick={() => void generateArtifactFromOps()}
+                    disabled={running || !opsId.trim() || !opsValue.trim()}
+                  >
+                    <ButtonLabel icon="prompt">Generate</ButtonLabel>
+                  </button>
+                ) : null}
+                {showGeneratedArtifactTargetActions ? (
+                  <>
+                    <button
+                      type="button"
+                      title="Show generated artifact Id."
+                      onClick={() => void showGeneratedArtifactFromOps()}
+                      disabled={running}
+                    >
+                      <ButtonLabel icon="artifact">Show</ButtonLabel>
+                    </button>
+                    <button
+                      type="button"
+                      title="Open generated artifact Id in the OS default app."
+                      onClick={() => void openGeneratedArtifactFromOps()}
+                      disabled={running}
+                    >
+                      <ButtonLabel icon="context">Open</ButtonLabel>
+                    </button>
+                    <button
+                      type="button"
+                      title="Download generated artifact Id to this device."
+                      onClick={() => void downloadGeneratedArtifactFromOps()}
+                      disabled={running}
+                    >
+                      <ButtonLabel icon="artifact">Download</ButtonLabel>
+                    </button>
+                  </>
+                ) : null}
               </div>
               {artifactExportStatus ? (
                 artifactExportCard(artifactExportStatus)

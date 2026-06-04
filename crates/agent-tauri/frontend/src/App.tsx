@@ -25341,18 +25341,35 @@ export default function App() {
                         </div>
                       </div>
                     </div>
-                    <div className="mini-actions">
-                      <button
-                        type="button"
-                        title="Stage this single message index for range actions."
-                        onClick={() =>
-                          setOpsValue(JSON.stringify({ from: index, to: index }))
-                        }
-                        disabled={running}
-                      >
-                        <ButtonLabel icon="trace">Set Range</ButtonLabel>
-                      </button>
-                    </div>
+                    <details
+                      className="advanced-controls"
+                      style={sectionThemeStyle("conversations")}
+                    >
+                      <summary title="Show message range staging action">
+                        <span
+                          className="advanced-controls-icon"
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="trace" />
+                        </span>
+                        <span className="advanced-controls-copy">
+                          <strong>More</strong>
+                          <span>Stage this message range</span>
+                        </span>
+                      </summary>
+                      <div className="button-grid">
+                        <button
+                          type="button"
+                          title="Stage this single message index for range actions."
+                          onClick={() =>
+                            setOpsValue(JSON.stringify({ from: index, to: index }))
+                          }
+                          disabled={running}
+                        >
+                          <ButtonLabel icon="trace">Set range</ButtonLabel>
+                        </button>
+                      </div>
+                    </details>
                   </div>
                 ))}
               </div>

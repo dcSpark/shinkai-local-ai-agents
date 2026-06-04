@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App conversation-message utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Expanded conversation message cards now move single-message range staging into a per-message More disclosure, keeping message content and provenance readable while preserving range workflows. |
 | App adapter-capability utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Adapter doctor capability rows now keep Install Skill and Allow Pkg visible while moving package-id staging into a row-level More disclosure, preserving adapter review decisions without foregrounding raw package transfer. |
 | App visible-tool utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Context preview and Toolbox visible-tool cards now move manual tool-call staging into per-card More disclosures, preserving direct-call setup while keeping tool catalog cards focused on inspection. |
 | App trace-tree utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Trace tree nodes now keep Load and Compare visible while moving run Set id, Replay, and Replay Compare into a node-level More disclosure, keeping trace exploration first without removing replay workflows. |

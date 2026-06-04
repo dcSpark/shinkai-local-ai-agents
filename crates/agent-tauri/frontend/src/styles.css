@@ -1557,14 +1557,14 @@ textarea:disabled {
 }
 
 .slash-command-menu button.selected {
-  border-color: #23919c;
-  background: #123238;
+  border-color: var(--section-accent);
+  background: var(--section-surface);
 }
 
 .slash-command-menu button.selected .slash-command-icon {
-  border-color: #23919c;
-  background: #0f343b;
-  color: #8fe8f0;
+  border-color: var(--section-accent);
+  background: #171b20;
+  color: var(--section-accent);
 }
 
 .slash-command-copy,

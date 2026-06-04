@@ -19919,6 +19919,9 @@ export default function App() {
     Boolean(memoryBackendProbe);
   const showPromptSaveAction = Boolean(opsId.trim() || opsValue.trim());
   const showPromptTargetActions = Boolean(opsId.trim());
+  const showPromptTransferControls = Boolean(opsId.trim() || opsValue.trim());
+  const showPromptTransferTargetActions = Boolean(opsId.trim());
+  const showPromptTransferImportAction = Boolean(opsValue.trim());
   const showConversationTargetActions = Boolean(opsId.trim());
   const showProfileTargetActions = Boolean(opsId.trim());
   const runControlVisualSection: ActiveSection =
@@ -27369,63 +27372,71 @@ export default function App() {
                   name and body.
                 </EmptyNote>
               )}
-              <details
-                className="context-more-controls"
-                style={sectionThemeStyle("prompts")}
-              >
-                <summary title="Show additional prompt library settings">
-                  <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="setup" />
-                  </span>
-                  <span className="advanced-controls-copy">
-                    <strong>More settings</strong>
-                    <span>Prompt transfer and cleanup</span>
-                  </span>
-                </summary>
-                <div className="context-more-grid">
-                  <details
-                    className="advanced-controls"
-                    style={sectionThemeStyle("prompts")}
-                  >
-                    <summary>
-                      <span className="advanced-controls-icon" aria-hidden="true">
-                        <AppIcon name="artifact" />
-                      </span>
-                      <span className="advanced-controls-copy">
-                        <strong>Prompt transfer</strong>
-                        <span>Import, export, and delete saved prompts</span>
-                      </span>
-                    </summary>
-                    <div className="button-grid">
-                      <button
-                        type="button"
-                        title="Export saved prompt Id to Value, or to /tmp when Value is blank."
-                        onClick={() => void exportPromptFromOps()}
-                        disabled={running || !opsId.trim()}
-                      >
-                        <ButtonLabel icon="artifact">Export</ButtonLabel>
-                      </button>
-                      <button
-                        type="button"
-                        title="Import a saved prompt from the path in Value."
-                        onClick={() => void importPromptFromOps()}
-                        disabled={running || !opsValue.trim()}
-                      >
-                        <ButtonLabel icon="artifact">Import</ButtonLabel>
-                      </button>
-                      <button
-                        type="button"
-                        className="danger"
-                        title="Delete saved prompt Id."
-                        onClick={() => void deletePromptFromOps()}
-                        disabled={running || !opsId.trim()}
-                      >
-                        <ButtonLabel icon="approval">Delete</ButtonLabel>
-                      </button>
-                    </div>
-                  </details>
-                </div>
-              </details>
+              {showPromptTransferControls ? (
+                <details
+                  className="context-more-controls"
+                  style={sectionThemeStyle("prompts")}
+                >
+                  <summary title="Show additional prompt library settings">
+                    <span className="advanced-controls-icon" aria-hidden="true">
+                      <AppIcon name="setup" />
+                    </span>
+                    <span className="advanced-controls-copy">
+                      <strong>More settings</strong>
+                      <span>Prompt transfer and cleanup</span>
+                    </span>
+                  </summary>
+                  <div className="context-more-grid">
+                    <details
+                      className="advanced-controls"
+                      style={sectionThemeStyle("prompts")}
+                    >
+                      <summary>
+                        <span className="advanced-controls-icon" aria-hidden="true">
+                          <AppIcon name="artifact" />
+                        </span>
+                        <span className="advanced-controls-copy">
+                          <strong>Prompt transfer</strong>
+                          <span>Import, export, and delete saved prompts</span>
+                        </span>
+                      </summary>
+                      <div className="button-grid">
+                        {showPromptTransferTargetActions ? (
+                          <>
+                            <button
+                              type="button"
+                              title="Export saved prompt Id to Value, or to /tmp when Value is blank."
+                              onClick={() => void exportPromptFromOps()}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="artifact">Export</ButtonLabel>
+                            </button>
+                            <button
+                              type="button"
+                              className="danger"
+                              title="Delete saved prompt Id."
+                              onClick={() => void deletePromptFromOps()}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="approval">Delete</ButtonLabel>
+                            </button>
+                          </>
+                        ) : null}
+                        {showPromptTransferImportAction ? (
+                          <button
+                            type="button"
+                            title="Import a saved prompt from the path in Value."
+                            onClick={() => void importPromptFromOps()}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="artifact">Import</ButtonLabel>
+                          </button>
+                        ) : null}
+                      </div>
+                    </details>
+                  </div>
+                </details>
+              ) : null}
             </div>
             ) : null}
 

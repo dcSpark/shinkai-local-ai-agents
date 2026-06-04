@@ -25241,12 +25241,12 @@ export default function App() {
                   className="context-more-controls"
                   style={sectionThemeStyle("conversations")}
                 >
-                  <summary title="Show additional conversation settings">
+                  <summary title="Show conversation cleanup tools">
                     <span className="advanced-controls-icon" aria-hidden="true">
-                      <AppIcon name="setup" />
+                      <AppIcon name="approval" />
                     </span>
                     <span className="advanced-controls-copy">
-                      <strong>More settings</strong>
+                      <strong>Cleanup tools</strong>
                       <span>Preview and remove ranges, branches, or agent-owned conversations</span>
                     </span>
                   </summary>
@@ -27542,13 +27542,13 @@ export default function App() {
                   className="context-more-controls"
                   style={sectionThemeStyle("prompts")}
                 >
-                  <summary title="Show additional prompt library settings">
+                  <summary title="Show prompt transfer tools">
                     <span className="advanced-controls-icon" aria-hidden="true">
-                      <AppIcon name="setup" />
+                      <AppIcon name="artifact" />
                     </span>
                     <span className="advanced-controls-copy">
-                      <strong>More settings</strong>
-                      <span>Prompt transfer and cleanup</span>
+                      <strong>Prompt transfer</strong>
+                      <span>Import/export and cleanup</span>
                     </span>
                   </summary>
                   <div className="context-more-grid">
@@ -28556,13 +28556,13 @@ export default function App() {
                 className="context-more-controls"
                 style={sectionThemeStyle("prompts")}
               >
-                <summary title="Show additional model settings">
+                <summary title="Show catalog and model transfer tools">
                   <span className="advanced-controls-icon" aria-hidden="true">
                     <AppIcon name="setup" />
                   </span>
                   <span className="advanced-controls-copy">
-                    <strong>More settings</strong>
-                    <span>Catalogs and transfer</span>
+                    <strong>Catalog tools</strong>
+                    <span>Provider and model records</span>
                   </span>
                 </summary>
                 <div className="context-more-grid">
@@ -28895,13 +28895,13 @@ export default function App() {
                   className="context-more-controls"
                   style={sectionThemeStyle("skills")}
                 >
-                  <summary title="Show additional skill and draft settings">
+                  <summary title="Show skill and draft transfer tools">
                     <span className="advanced-controls-icon" aria-hidden="true">
-                      <AppIcon name="setup" />
+                      <AppIcon name="skill" />
                     </span>
                     <span className="advanced-controls-copy">
-                      <strong>More settings</strong>
-                      <span>Skill transfer, quarantine, draft transfer, and cleanup</span>
+                      <strong>Skill transfer</strong>
+                      <span>Skills, drafts, quarantine, and cleanup</span>
                     </span>
                   </summary>
                   <div className="context-more-grid">
@@ -31058,13 +31058,13 @@ export default function App() {
                   className="context-more-controls"
                   style={sectionThemeStyle("artifacts")}
                 >
-                  <summary title="Show additional artifact settings">
+                  <summary title="Show artifact maintenance tools">
                     <span className="advanced-controls-icon" aria-hidden="true">
-                      <AppIcon name="setup" />
+                      <AppIcon name="artifact" />
                     </span>
                     <span className="advanced-controls-copy">
-                      <strong>More settings</strong>
-                      <span>Export generated files and remove cached artifacts</span>
+                      <strong>Artifact maintenance</strong>
+                      <span>Export generated files or remove cached artifacts</span>
                     </span>
                   </summary>
                   <div className="context-more-grid">
@@ -31592,13 +31592,13 @@ export default function App() {
                       className="context-more-controls"
                       style={sectionThemeStyle("chat")}
                     >
-                      <summary title="Show additional compaction settings">
+                      <summary title="Show compacted-context transfer tools">
                         <span className="advanced-controls-icon" aria-hidden="true">
-                          <AppIcon name="setup" />
+                          <AppIcon name="context" />
                         </span>
                         <span className="advanced-controls-copy">
-                          <strong>More settings</strong>
-                          <span>Import/export compacted context and delete saved artifacts</span>
+                          <strong>Compaction transfer</strong>
+                          <span>Import/export compacted context or delete saved artifacts</span>
                         </span>
                       </summary>
                       <div className="context-more-grid">
@@ -32098,13 +32098,13 @@ export default function App() {
                   className="context-more-controls"
                   style={sectionThemeStyle("chat")}
                 >
-                  <summary title="Show additional saved-agent settings">
+                  <summary title="Show saved-agent transfer tools">
                     <span className="advanced-controls-icon" aria-hidden="true">
-                      <AppIcon name="setup" />
+                      <AppIcon name="brand" />
                     </span>
                     <span className="advanced-controls-copy">
-                      <strong>More settings</strong>
-                      <span>Portable agent import/export and destructive delete</span>
+                      <strong>Agent transfer</strong>
+                      <span>Import/export portable agents or delete saved configs</span>
                     </span>
                   </summary>
                   <div className="context-more-grid">

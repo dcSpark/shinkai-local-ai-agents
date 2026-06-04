@@ -33361,19 +33361,19 @@ export default function App() {
                     <div className="button-grid">
                       <button
                         type="button"
-                        title="Retry bridge delivery Id."
+                        title="Retry the bridge delivery in Target id."
                         onClick={() => void retryBridgeDeliveryFromOps()}
                         disabled={running || transport !== "daemon" || !opsId.trim()}
                       >
-                        <ButtonLabel icon="trace">Retry Id</ButtonLabel>
+                        <ButtonLabel icon="trace">Retry staged</ButtonLabel>
                       </button>
                       <button
                         type="button"
-                        title="Delete bridge delivery Id without retrying."
+                        title="Delete the bridge delivery in Target id without retrying."
                         onClick={() => void deleteBridgeDeliveryFromOps()}
                         disabled={running || transport !== "daemon" || !opsId.trim()}
                       >
-                        <ButtonLabel icon="approval">Delete Id</ButtonLabel>
+                        <ButtonLabel icon="approval">Delete staged</ButtonLabel>
                       </button>
                       <button
                         type="button"
@@ -33381,7 +33381,7 @@ export default function App() {
                         onClick={() => void retryAllBridgeDeliveriesFromOps()}
                         disabled={running || transport !== "daemon"}
                       >
-                        <ButtonLabel icon="trace">Retry All</ButtonLabel>
+                        <ButtonLabel icon="trace">Retry all</ButtonLabel>
                       </button>
                     </div>
                   </details>

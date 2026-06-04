@@ -19876,6 +19876,9 @@ export default function App() {
   const showGeneratedArtifactTargetActions = Boolean(opsId.trim());
   const showSkillTargetAction = Boolean(opsId.trim());
   const showSkillPreviewAction = loadSkills || skillDocs.length > 0;
+  const showSkillTransferControls = Boolean(opsId.trim() || opsValue.trim());
+  const showSkillTransferTargetActions = Boolean(opsId.trim());
+  const showSkillTransferImportAction = Boolean(opsValue.trim());
   const showCompactionTargetActions = Boolean(opsId.trim());
   const showAgentTargetActions = Boolean(opsId.trim());
   const showAgentSaveAction = Boolean(opsId.trim() || opsValue.trim());
@@ -28690,111 +28693,125 @@ export default function App() {
               )}
                 </div>
               </details>
-              <details
-                className="context-more-controls"
-                style={sectionThemeStyle("skills")}
-              >
-                <summary title="Show additional skill and draft settings">
-                  <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="setup" />
-                  </span>
-                  <span className="advanced-controls-copy">
-                    <strong>More settings</strong>
-                    <span>Skill transfer, quarantine, draft transfer, and cleanup</span>
-                  </span>
-                </summary>
-                <div className="context-more-grid">
-                  <details
-                    className="advanced-controls"
-                    style={sectionThemeStyle("skills")}
-                  >
-                    <summary>
-                      <span className="advanced-controls-icon" aria-hidden="true">
-                        <AppIcon name="skill" />
-                      </span>
-                      <span className="advanced-controls-copy">
-                        <strong>Skill transfer</strong>
-                        <span>Import, export, allow, and quarantine by id</span>
-                      </span>
-                    </summary>
-                    <div className="button-grid">
-                      <button
-                        type="button"
-                        title="Import a SKILL.md file or folder path from Value."
-                        onClick={() => void importSkillFromOps()}
-                        disabled={running || !opsValue.trim()}
-                      >
-                        <ButtonLabel icon="artifact">Import Skill</ButtonLabel>
-                      </button>
-                      <button
-                        type="button"
-                        title="Export quarantined or allowed skill Id to Value, or to /tmp when Value is blank."
-                        onClick={() => void exportSkillFromOps()}
-                        disabled={running || !opsId.trim()}
-                      >
-                        <ButtonLabel icon="artifact">Export Skill</ButtonLabel>
-                      </button>
-                      <button
-                        type="button"
-                        title="Allow quarantined skill Id into context after digest and prompt-injection checks pass."
-                        onClick={() => void setSkillQuarantine(true)}
-                        disabled={running || !opsId.trim()}
-                      >
-                        <ButtonLabel icon="approval">Allow Skill</ButtonLabel>
-                      </button>
-                      <button
-                        type="button"
-                        title="Quarantine skill Id."
-                        onClick={() => void setSkillQuarantine(false)}
-                        disabled={running || !opsId.trim()}
-                      >
-                        <ButtonLabel icon="approval">Quarantine</ButtonLabel>
-                      </button>
-                    </div>
-                  </details>
-                  <details
-                    className="advanced-controls"
-                    style={sectionThemeStyle("skills")}
-                  >
-                    <summary>
-                      <span className="advanced-controls-icon" aria-hidden="true">
-                        <AppIcon name="tools" />
-                      </span>
-                      <span className="advanced-controls-copy">
-                        <strong>Draft transfer</strong>
-                        <span>Import/export and destructive cleanup</span>
-                      </span>
-                    </summary>
-                    <div className="button-grid">
-                      <button
-                        type="button"
-                        title="Export capability draft Id to Value, or to /tmp when Value is blank."
-                        onClick={() => void exportCapabilityFromOps()}
-                        disabled={running || !opsId.trim()}
-                      >
-                        <ButtonLabel icon="artifact">Export Draft</ButtonLabel>
-                      </button>
-                      <button
-                        type="button"
-                        title="Import a capability draft from Value path. Imported drafts stay quarantined."
-                        onClick={() => void importCapabilityFromOps()}
-                        disabled={running || !opsValue.trim()}
-                      >
-                        <ButtonLabel icon="artifact">Import Draft</ButtonLabel>
-                      </button>
-                      <button
-                        type="button"
-                        className="danger"
-                        title="Delete capability draft Id."
-                        onClick={() => void deleteCapabilityFromOps()}
-                        disabled={running || !opsId.trim()}
-                      >
-                        <ButtonLabel icon="approval">Delete Draft</ButtonLabel>
-                      </button>
-                    </div>
-                  </details>
-                </div>
-              </details>
+              {showSkillTransferControls ? (
+                <details
+                  className="context-more-controls"
+                  style={sectionThemeStyle("skills")}
+                >
+                  <summary title="Show additional skill and draft settings">
+                    <span className="advanced-controls-icon" aria-hidden="true">
+                      <AppIcon name="setup" />
+                    </span>
+                    <span className="advanced-controls-copy">
+                      <strong>More settings</strong>
+                      <span>Skill transfer, quarantine, draft transfer, and cleanup</span>
+                    </span>
+                  </summary>
+                  <div className="context-more-grid">
+                    <details
+                      className="advanced-controls"
+                      style={sectionThemeStyle("skills")}
+                    >
+                      <summary>
+                        <span className="advanced-controls-icon" aria-hidden="true">
+                          <AppIcon name="skill" />
+                        </span>
+                        <span className="advanced-controls-copy">
+                          <strong>Skill transfer</strong>
+                          <span>Import, export, allow, and quarantine by id</span>
+                        </span>
+                      </summary>
+                      <div className="button-grid">
+                        {showSkillTransferImportAction ? (
+                          <button
+                            type="button"
+                            title="Import a SKILL.md file or folder path from Value."
+                            onClick={() => void importSkillFromOps()}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="artifact">Import Skill</ButtonLabel>
+                          </button>
+                        ) : null}
+                        {showSkillTransferTargetActions ? (
+                          <>
+                            <button
+                              type="button"
+                              title="Export quarantined or allowed skill Id to Value, or to /tmp when Value is blank."
+                              onClick={() => void exportSkillFromOps()}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="artifact">Export Skill</ButtonLabel>
+                            </button>
+                            <button
+                              type="button"
+                              title="Allow quarantined skill Id into context after digest and prompt-injection checks pass."
+                              onClick={() => void setSkillQuarantine(true)}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="approval">Allow Skill</ButtonLabel>
+                            </button>
+                            <button
+                              type="button"
+                              title="Quarantine skill Id."
+                              onClick={() => void setSkillQuarantine(false)}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="approval">Quarantine</ButtonLabel>
+                            </button>
+                          </>
+                        ) : null}
+                      </div>
+                    </details>
+                    <details
+                      className="advanced-controls"
+                      style={sectionThemeStyle("skills")}
+                    >
+                      <summary>
+                        <span className="advanced-controls-icon" aria-hidden="true">
+                          <AppIcon name="tools" />
+                        </span>
+                        <span className="advanced-controls-copy">
+                          <strong>Draft transfer</strong>
+                          <span>Import/export and destructive cleanup</span>
+                        </span>
+                      </summary>
+                      <div className="button-grid">
+                        {showSkillTransferTargetActions ? (
+                          <>
+                            <button
+                              type="button"
+                              title="Export capability draft Id to Value, or to /tmp when Value is blank."
+                              onClick={() => void exportCapabilityFromOps()}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="artifact">Export Draft</ButtonLabel>
+                            </button>
+                            <button
+                              type="button"
+                              className="danger"
+                              title="Delete capability draft Id."
+                              onClick={() => void deleteCapabilityFromOps()}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="approval">Delete Draft</ButtonLabel>
+                            </button>
+                          </>
+                        ) : null}
+                        {showSkillTransferImportAction ? (
+                          <button
+                            type="button"
+                            title="Import a capability draft from Value path. Imported drafts stay quarantined."
+                            onClick={() => void importCapabilityFromOps()}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="artifact">Import Draft</ButtonLabel>
+                          </button>
+                        ) : null}
+                      </div>
+                    </details>
+                  </div>
+                </details>
+              ) : null}
               {capabilityDoctorReport ? (
                 <div className="ingestion-review">
                   <div

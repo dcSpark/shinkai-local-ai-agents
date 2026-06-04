@@ -19947,6 +19947,11 @@ export default function App() {
       Boolean(expandedConversation) ||
       Boolean(conversationDeletePlan));
   const showProfileTargetActions = Boolean(opsId.trim());
+  const showProfileAccessTargetActions = Boolean(opsId.trim());
+  const showProfileGrantAction = Boolean(opsId.trim() && opsValue.trim());
+  const showProfileBundleImportAction = Boolean(opsValue.trim());
+  const showSecretTargetActions = Boolean(opsId.trim());
+  const showSecretWriteActions = Boolean(opsId.trim() && opsValue.trim());
   const runControlVisualSection: ActiveSection =
     activeSection === "approvals" ? "approvals" : "chat";
   const pendingApprovalCount = approvals.filter(
@@ -25662,26 +25667,27 @@ export default function App() {
                   </span>
                 </summary>
                 <div className="button-grid">
-                  <button
-                    type="button"
-                    className="danger"
-                    title={
-                      currentProfile?.id === opsId.trim()
-                        ? "The active profile cannot be deleted from this session."
-                        : opsId.trim() === "main"
-                          ? "The main profile cannot be deleted."
-                          : "Delete profile Id."
-                    }
-                    onClick={() => void deleteProfileFromOps()}
-                    disabled={
-                      running ||
-                      !opsId.trim() ||
-                      opsId.trim() === "main" ||
-                      currentProfile?.id === opsId.trim()
-                    }
-                  >
-                    <ButtonLabel icon="approval">Delete</ButtonLabel>
-                  </button>
+                  {showProfileAccessTargetActions ? (
+                    <button
+                      type="button"
+                      className="danger"
+                      title={
+                        currentProfile?.id === opsId.trim()
+                          ? "The active profile cannot be deleted from this session."
+                          : opsId.trim() === "main"
+                            ? "The main profile cannot be deleted."
+                            : "Delete profile Id."
+                      }
+                      onClick={() => void deleteProfileFromOps()}
+                      disabled={
+                        running ||
+                        opsId.trim() === "main" ||
+                        currentProfile?.id === opsId.trim()
+                      }
+                    >
+                      <ButtonLabel icon="approval">Delete</ButtonLabel>
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     title="List all profile grants, or grants from profile Id when Id is set."
@@ -25690,23 +25696,27 @@ export default function App() {
                   >
                     <ButtonLabel icon="approval">List Grants</ButtonLabel>
                   </button>
-                  <button
-                    type="button"
-                    title='Grant to profile Id using Value JSON like { "kind": "memory", "resource": "agent:critic" }.'
-                    onClick={() => void grantProfileFromOps()}
-                    disabled={running || !opsId.trim() || !opsValue.trim()}
-                  >
-                    <ButtonLabel icon="approval">Grant</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    className="danger"
-                    title="Revoke profile grant Id."
-                    onClick={() => void revokeProfileGrantFromOps()}
-                    disabled={running || !opsId.trim()}
-                  >
-                    <ButtonLabel icon="approval">Revoke Grant</ButtonLabel>
-                  </button>
+                  {showProfileGrantAction ? (
+                    <button
+                      type="button"
+                      title='Grant to profile Id using Value JSON like { "kind": "memory", "resource": "agent:critic" }.'
+                      onClick={() => void grantProfileFromOps()}
+                      disabled={running}
+                    >
+                      <ButtonLabel icon="approval">Grant</ButtonLabel>
+                    </button>
+                  ) : null}
+                  {showProfileAccessTargetActions ? (
+                    <button
+                      type="button"
+                      className="danger"
+                      title="Revoke profile grant Id."
+                      onClick={() => void revokeProfileGrantFromOps()}
+                      disabled={running}
+                    >
+                      <ButtonLabel icon="approval">Revoke Grant</ButtonLabel>
+                    </button>
+                  ) : null}
                 </div>
               </details>
               <details
@@ -25739,14 +25749,16 @@ export default function App() {
                   >
                     <ButtonLabel icon="artifact">Export Bundle</ButtonLabel>
                   </button>
-                  <button
-                    type="button"
-                    title="Import a profile/config/cache bundle from the path in Value."
-                    onClick={() => void importBundleFromOps()}
-                    disabled={running || !opsValue.trim()}
-                  >
-                    <ButtonLabel icon="artifact">Import Bundle</ButtonLabel>
-                  </button>
+                  {showProfileBundleImportAction ? (
+                    <button
+                      type="button"
+                      title="Import a profile/config/cache bundle from the path in Value."
+                      onClick={() => void importBundleFromOps()}
+                      disabled={running}
+                    >
+                      <ButtonLabel icon="artifact">Import Bundle</ButtonLabel>
+                    </button>
+                  ) : null}
                 </div>
               </details>
               <details
@@ -25762,17 +25774,19 @@ export default function App() {
                     <span>Inspect backends and store, rotate, or delete secrets</span>
                   </span>
                 </summary>
-                <label>
-                  <FieldLabel icon="control" section="profiles">
-                    Secret label
-                  </FieldLabel>
-                  <input
-                    value={secretLabel}
-                    onChange={(e) => setSecretLabel(e.target.value)}
-                    placeholder="optional display label"
-                    disabled={running}
-                  />
-                </label>
+                {showSecretWriteActions ? (
+                  <label>
+                    <FieldLabel icon="control" section="profiles">
+                      Secret label
+                    </FieldLabel>
+                    <input
+                      value={secretLabel}
+                      onChange={(e) => setSecretLabel(e.target.value)}
+                      placeholder="optional display label"
+                      disabled={running}
+                    />
+                  </label>
+                ) : null}
                 <div className="button-grid">
                   <button
                     type="button"
@@ -25790,39 +25804,47 @@ export default function App() {
                   >
                     <ButtonLabel icon="control">List Secrets</ButtonLabel>
                   </button>
-                  <button
-                    type="button"
-                    title="Show redacted metadata for secret Id."
-                    onClick={() => void showSecretFromOps()}
-                    disabled={running || !opsId.trim()}
-                  >
-                    <ButtonLabel icon="control">Show Secret</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    title="Store secret Id using Value as the secret value."
-                    onClick={() => void setSecretFromOps()}
-                    disabled={running || !opsId.trim() || !opsValue.trim()}
-                  >
-                    <ButtonLabel icon="control">Store Secret</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    title="Rotate secret Id using Value as the new secret value."
-                    onClick={() => void rotateSecretFromOps()}
-                    disabled={running || !opsId.trim() || !opsValue.trim()}
-                  >
-                    <ButtonLabel icon="control">Rotate Secret</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    className="danger"
-                    title="Delete secret Id."
-                    onClick={() => void deleteSecretFromOps()}
-                    disabled={running || !opsId.trim()}
-                  >
-                    <ButtonLabel icon="approval">Delete Secret</ButtonLabel>
-                  </button>
+                  {showSecretTargetActions ? (
+                    <button
+                      type="button"
+                      title="Show redacted metadata for secret Id."
+                      onClick={() => void showSecretFromOps()}
+                      disabled={running}
+                    >
+                      <ButtonLabel icon="control">Show Secret</ButtonLabel>
+                    </button>
+                  ) : null}
+                  {showSecretWriteActions ? (
+                    <>
+                      <button
+                        type="button"
+                        title="Store secret Id using Value as the secret value."
+                        onClick={() => void setSecretFromOps()}
+                        disabled={running}
+                      >
+                        <ButtonLabel icon="control">Store Secret</ButtonLabel>
+                      </button>
+                      <button
+                        type="button"
+                        title="Rotate secret Id using Value as the new secret value."
+                        onClick={() => void rotateSecretFromOps()}
+                        disabled={running}
+                      >
+                        <ButtonLabel icon="control">Rotate Secret</ButtonLabel>
+                      </button>
+                    </>
+                  ) : null}
+                  {showSecretTargetActions ? (
+                    <button
+                      type="button"
+                      className="danger"
+                      title="Delete secret Id."
+                      onClick={() => void deleteSecretFromOps()}
+                      disabled={running}
+                    >
+                      <ButtonLabel icon="approval">Delete Secret</ButtonLabel>
+                    </button>
+                  ) : null}
                 </div>
               </details>
                 </div>

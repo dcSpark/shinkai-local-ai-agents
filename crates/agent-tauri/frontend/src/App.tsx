@@ -19895,6 +19895,10 @@ export default function App() {
     provider !== "fake";
   const showModelTargetActions = Boolean(opsId.trim());
   const showModelSaveAction = provider !== "fake";
+  const showModelTransferControls = Boolean(opsId.trim() || opsValue.trim());
+  const showModelTransferTargetActions = Boolean(opsId.trim());
+  const showModelTransferImportAction = Boolean(opsValue.trim());
+  const showModelCatalogFileImportActions = Boolean(opsValue.trim());
   const showIngestionArtifactActions =
     ingestionArtifacts.length > 0 ||
     includeIngestIds.length > 0 ||
@@ -28412,55 +28416,63 @@ export default function App() {
                       </button>
                     </div>
                   </details>
-                  <details
-                    className="advanced-controls"
-                    style={sectionThemeStyle("prompts")}
-                  >
-                    <summary>
-                      <span className="advanced-controls-icon" aria-hidden="true">
-                        <AppIcon name="setup" />
-                      </span>
-                      <span className="advanced-controls-copy">
-                        <strong>Models</strong>
-                        <span>Save, import/export, and delete</span>
-                      </span>
-                    </summary>
-                    <div className="button-grid">
-                      <button
-                        type="button"
-                        title="Save model Id using Value as a JSON metadata object."
-                        onClick={() => void saveModelFromOps()}
-                        disabled={running || !opsId.trim()}
-                      >
-                        <ButtonLabel icon="setup">Save</ButtonLabel>
-                      </button>
-                      <button
-                        type="button"
-                        title="Export model Id to Value, or to /tmp when Value is blank."
-                        onClick={() => void exportModelFromOps()}
-                        disabled={running || !opsId.trim()}
-                      >
-                        <ButtonLabel icon="artifact">Export</ButtonLabel>
-                      </button>
-                      <button
-                        type="button"
-                        title="Import model metadata from the path in Value."
-                        onClick={() => void importModelFromOps()}
-                        disabled={running || !opsValue.trim()}
-                      >
-                        <ButtonLabel icon="artifact">Import</ButtonLabel>
-                      </button>
-                      <button
-                        type="button"
-                        className="danger"
-                        title="Delete model Id."
-                        onClick={() => void deleteModelFromOps()}
-                        disabled={running || !opsId.trim()}
-                      >
-                        <ButtonLabel icon="approval">Delete</ButtonLabel>
-                      </button>
-                    </div>
-                  </details>
+                  {showModelTransferControls ? (
+                    <details
+                      className="advanced-controls"
+                      style={sectionThemeStyle("prompts")}
+                    >
+                      <summary>
+                        <span className="advanced-controls-icon" aria-hidden="true">
+                          <AppIcon name="setup" />
+                        </span>
+                        <span className="advanced-controls-copy">
+                          <strong>Models</strong>
+                          <span>Save, import/export, and delete</span>
+                        </span>
+                      </summary>
+                      <div className="button-grid">
+                        {showModelTransferTargetActions ? (
+                          <>
+                            <button
+                              type="button"
+                              title="Save model Id using Value as a JSON metadata object."
+                              onClick={() => void saveModelFromOps()}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="setup">Save</ButtonLabel>
+                            </button>
+                            <button
+                              type="button"
+                              title="Export model Id to Value, or to /tmp when Value is blank."
+                              onClick={() => void exportModelFromOps()}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="artifact">Export</ButtonLabel>
+                            </button>
+                            <button
+                              type="button"
+                              className="danger"
+                              title="Delete model Id."
+                              onClick={() => void deleteModelFromOps()}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="approval">Delete</ButtonLabel>
+                            </button>
+                          </>
+                        ) : null}
+                        {showModelTransferImportAction ? (
+                          <button
+                            type="button"
+                            title="Import model metadata from the path in Value."
+                            onClick={() => void importModelFromOps()}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="artifact">Import</ButtonLabel>
+                          </button>
+                        ) : null}
+                      </div>
+                    </details>
+                  ) : null}
                   <details
                     className="advanced-controls"
                     style={sectionThemeStyle("prompts")}
@@ -28488,14 +28500,16 @@ export default function App() {
                       >
                         <ButtonLabel icon="artifact">Export providers</ButtonLabel>
                       </button>
-                      <button
-                        type="button"
-                        title="Import provider catalog JSON from the path in Value."
-                        onClick={() => void importModelProviderCatalogFromOps()}
-                        disabled={running || !opsValue.trim()}
-                      >
-                        <ButtonLabel icon="artifact">Import providers</ButtonLabel>
-                      </button>
+                      {showModelCatalogFileImportActions ? (
+                        <button
+                          type="button"
+                          title="Import provider catalog JSON from the path in Value."
+                          onClick={() => void importModelProviderCatalogFromOps()}
+                          disabled={running}
+                        >
+                          <ButtonLabel icon="artifact">Import providers</ButtonLabel>
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         title="Export metadata catalog JSON to Value, or to /tmp when Value is blank."
@@ -28509,14 +28523,16 @@ export default function App() {
                       >
                         <ButtonLabel icon="artifact">Export metadata</ButtonLabel>
                       </button>
-                      <button
-                        type="button"
-                        title="Import metadata catalog JSON from the path in Value."
-                        onClick={() => void importModelMetadataCatalogFromOps()}
-                        disabled={running || !opsValue.trim()}
-                      >
-                        <ButtonLabel icon="artifact">Import metadata</ButtonLabel>
-                      </button>
+                      {showModelCatalogFileImportActions ? (
+                        <button
+                          type="button"
+                          title="Import metadata catalog JSON from the path in Value."
+                          onClick={() => void importModelMetadataCatalogFromOps()}
+                          disabled={running}
+                        >
+                          <ButtonLabel icon="artifact">Import metadata</ButtonLabel>
+                        </button>
+                      ) : null}
                     </div>
                   </details>
                 </div>

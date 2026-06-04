@@ -1506,6 +1506,7 @@ textarea:disabled {
   min-height: 0;
   padding: 1rem 1.55rem 1.25rem;
   border-top: 1px solid #2a2f39;
+  border-top-color: var(--section-accent);
   background: #181c22;
   z-index: 1;
 }
@@ -1525,7 +1526,7 @@ textarea:disabled {
 }
 
 .composer textarea:focus {
-  border-color: #2aa6b6;
+  border-color: var(--section-accent);
   box-shadow: 0 0 0 2px rgba(42, 166, 182, 0.18);
 }
 

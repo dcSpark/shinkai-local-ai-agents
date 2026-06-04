@@ -359,6 +359,20 @@ const RAIL_ARIA_LABELS: Record<ActiveSection, string> = {
   approvals: "Approvals",
 };
 
+const COMPOSER_PLACEHOLDERS: Record<ActiveSection, string> = {
+  chat: "Describe a task",
+  trace: "Describe a task, or load run history",
+  conversations: "Describe a task, or browse branches",
+  profiles: "Describe a task, or review identity",
+  memory: "Describe a task, or review memory",
+  skills: "Describe a task, or preview skills",
+  prompts: "Draft a task, or reuse prompts",
+  ingest: "Describe a task, or probe files",
+  artifacts: "Describe an output, or inspect artifacts",
+  adapters: "Describe a task, or review integrations",
+  approvals: "Describe a task, or review decisions",
+};
+
 const SECTION_CUES: Record<ActiveSection, SectionCue[]> = {
   chat: [
     { value: "Ask", label: "agent chat", icon: "chat", tone: "ok" },
@@ -466,6 +480,11 @@ function featureVisualMode(section: ActiveSection) {
   }
   if (section === "memory" || section === "prompts") return "stack";
   return "flow";
+}
+
+function composerPlaceholder(section: ActiveSection, isRunning: boolean) {
+  if (isRunning) return "Type /guide to steer this run";
+  return COMPOSER_PLACEHOLDERS[section];
 }
 
 function estimateStaticTokens(text: string) {
@@ -20326,12 +20345,12 @@ export default function App() {
           ))}
         </section>
 
-        <footer className="composer">
+        <footer className="composer" style={sectionThemeStyle(activeSection)}>
           <textarea
             value={input}
             onChange={(e) => updateComposerInput(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder={running ? "Type /guide to steer this run" : "Describe a task"}
+            placeholder={composerPlaceholder(activeSection, running)}
             aria-controls={slashCommandItems.length ? "slash-command-menu" : undefined}
             aria-expanded={slashCommandItems.length ? true : undefined}
             aria-activedescendant={activeSlashCommandId}

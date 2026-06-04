@@ -19857,6 +19857,13 @@ export default function App() {
     Boolean(bundleStatus) ||
     Boolean(storageReport) ||
     Boolean(storagePruneResult);
+  const showArtifactVoiceControls =
+    recordingVoice ||
+    voiceOutputBusy ||
+    Boolean(voicePreviewUrl) ||
+    Boolean(voiceCaptureArtifact) ||
+    Boolean(voiceOutputPreviewUrl) ||
+    Boolean(voiceOutputArtifact);
   const modelDoctorCardTone = modelDoctorReport
     ? modelDoctorTone(modelDoctorReport)
     : "neutral";
@@ -30756,7 +30763,21 @@ export default function App() {
             ) : null}
 
             {activeSection === "artifacts" ? (
-            <div className="operation-group artifacts-voice-group">
+            <details
+              className="context-more-controls artifacts-voice-group"
+              style={sectionThemeStyle("artifacts")}
+              open={showArtifactVoiceControls}
+            >
+              <summary title="Show voice capture, transcription, and speech tools">
+                <span className="advanced-controls-icon" aria-hidden="true">
+                  <AppIcon name="audio" />
+                </span>
+                <span className="advanced-controls-copy">
+                  <strong>Voice tools</strong>
+                  <span>Capture, transcribe, speak</span>
+                </span>
+              </summary>
+              <div className="operation-group">
               <OperationTitle title="Voice" section="artifacts" icon="control" />
               <div className="button-grid">
                 <button
@@ -30957,7 +30978,8 @@ export default function App() {
                   ) : null}
                 </div>
               ) : null}
-            </div>
+              </div>
+            </details>
             ) : null}
 
             {activeSection === "chat" ? (

@@ -19897,6 +19897,7 @@ export default function App() {
     Boolean(memoryTopics.trim()) ||
     memoryBackends.length > 0 ||
     Boolean(memoryBackendProbe);
+  const showConversationTargetActions = Boolean(opsId.trim());
   const runControlVisualSection: ActiveSection =
     activeSection === "approvals" ? "approvals" : "chat";
   const pendingApprovalCount = approvals.filter(
@@ -24538,30 +24539,34 @@ export default function App() {
                 >
                   <ButtonLabel icon="conversation">List</ButtonLabel>
                 </button>
-                <button
-                  type="button"
-                  title="Show expanded conversation Id."
-                  onClick={() => void showConversationFromOps()}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="conversation">Show</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title='Show usage totals for conversation Id. Optional Value: { "from": 2, "to": 4 }.'
-                  onClick={() => void loadConversationUsageFromOps()}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="trace">Usage</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Build a recovery plan and apply suggested run settings."
-                  onClick={() => void recoverConversationFromOps()}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="context">Recover</ButtonLabel>
-                </button>
+                {showConversationTargetActions ? (
+                  <>
+                    <button
+                      type="button"
+                      title="Show expanded conversation Id."
+                      onClick={() => void showConversationFromOps()}
+                      disabled={running || !opsId.trim()}
+                    >
+                      <ButtonLabel icon="conversation">Show</ButtonLabel>
+                    </button>
+                    <button
+                      type="button"
+                      title='Show usage totals for conversation Id. Optional Value: { "from": 2, "to": 4 }.'
+                      onClick={() => void loadConversationUsageFromOps()}
+                      disabled={running || !opsId.trim()}
+                    >
+                      <ButtonLabel icon="trace">Usage</ButtonLabel>
+                    </button>
+                    <button
+                      type="button"
+                      title="Build a recovery plan and apply suggested run settings."
+                      onClick={() => void recoverConversationFromOps()}
+                      disabled={running || !opsId.trim()}
+                    >
+                      <ButtonLabel icon="context">Recover</ButtonLabel>
+                    </button>
+                  </>
+                ) : null}
               </div>
               {conversationDocs.length ? (
                 <EmptyNote section="conversations" icon="conversation">

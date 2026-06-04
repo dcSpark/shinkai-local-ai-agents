@@ -29982,13 +29982,13 @@ export default function App() {
                 className="context-more-controls"
                 style={sectionThemeStyle("ingest")}
               >
-                <summary title="Show additional ingestion settings">
+                <summary title="Show ingestion setup and review tools">
                   <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="setup" />
+                    <AppIcon name="ingest" />
                   </span>
                   <span className="advanced-controls-copy">
-                    <strong>More settings</strong>
-                    <span>Backend, models, finding review, and maintenance</span>
+                    <strong>Ingest setup</strong>
+                    <span>Backends, models, and review</span>
                   </span>
                 </summary>
                 <div className="context-more-grid">

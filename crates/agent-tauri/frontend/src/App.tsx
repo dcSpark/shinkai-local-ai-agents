@@ -19870,6 +19870,8 @@ export default function App() {
     capabilityDrafts.length > 0 ||
     Boolean(capabilityDoctorReport) ||
     capabilityKind !== "skill";
+  const showCapabilityProposeAction = Boolean(opsId.trim() || opsValue.trim());
+  const showCapabilityTargetActions = Boolean(opsId.trim());
   const showArtifactGenerateAction = Boolean(opsId.trim() || opsValue.trim());
   const showGeneratedArtifactTargetActions = Boolean(opsId.trim());
   const showSkillTargetAction = Boolean(opsId.trim());
@@ -28610,38 +28612,44 @@ export default function App() {
                 >
                   <ButtonLabel icon="trace">Doctor</ButtonLabel>
                 </button>
-                <button
-                  type="button"
-                  title="Create a quarantined draft from Id as name, Value as body, and optional Draft guidance."
-                  onClick={() => void proposeCapabilityFromOps()}
-                  disabled={running || !opsId.trim() || !opsValue.trim()}
-                >
-                  <ButtonLabel icon="tools">Propose</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Show capability draft Id."
-                  onClick={() => void showCapabilityFromOps()}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="tools">Show</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Allow capability draft Id after review."
-                  onClick={() => void reviewCapabilityDraft(true)}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="approval">Allow</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Reject capability draft Id and quarantine its promoted capability if present."
-                  onClick={() => void reviewCapabilityDraft(false)}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="approval">Reject</ButtonLabel>
-                </button>
+                {showCapabilityProposeAction ? (
+                  <button
+                    type="button"
+                    title="Create a quarantined draft from Id as name, Value as body, and optional Draft guidance."
+                    onClick={() => void proposeCapabilityFromOps()}
+                    disabled={running || !opsId.trim() || !opsValue.trim()}
+                  >
+                    <ButtonLabel icon="tools">Propose</ButtonLabel>
+                  </button>
+                ) : null}
+                {showCapabilityTargetActions ? (
+                  <>
+                    <button
+                      type="button"
+                      title="Show capability draft Id."
+                      onClick={() => void showCapabilityFromOps()}
+                      disabled={running}
+                    >
+                      <ButtonLabel icon="tools">Show</ButtonLabel>
+                    </button>
+                    <button
+                      type="button"
+                      title="Allow capability draft Id after review."
+                      onClick={() => void reviewCapabilityDraft(true)}
+                      disabled={running}
+                    >
+                      <ButtonLabel icon="approval">Allow</ButtonLabel>
+                    </button>
+                    <button
+                      type="button"
+                      title="Reject capability draft Id and quarantine its promoted capability if present."
+                      onClick={() => void reviewCapabilityDraft(false)}
+                      disabled={running}
+                    >
+                      <ButtonLabel icon="approval">Reject</ButtonLabel>
+                    </button>
+                  </>
+                ) : null}
               </div>
               {capabilityDoctorReport || capabilityDrafts.length ? (
                 <EmptyNote section="skills" icon="tools">

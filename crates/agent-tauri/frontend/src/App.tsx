@@ -19886,11 +19886,7 @@ export default function App() {
     running ||
     Boolean(lastRunId) ||
     Boolean(opsId.trim());
-  const showContextRunCheck =
-    showComposerPreviewAction ||
-    running ||
-    Boolean(lastRunId) ||
-    Boolean(contextPreview) ||
+  const hasContextConfigurationSignal =
     Boolean(conversationId.trim()) ||
     Boolean(manualCompactedContext.trim()) ||
     includeIngestIds.length > 0 ||
@@ -19907,6 +19903,12 @@ export default function App() {
     Boolean(allowedToolCategories.trim()) ||
     Boolean(allowedSkillCategories.trim()) ||
     agentMode !== "workflow";
+  const showContextPreviewAction =
+    showComposerPreviewAction ||
+    Boolean(contextPreview) ||
+    hasContextConfigurationSignal;
+  const showContextRunCheck =
+    showContextPreviewAction || running || Boolean(lastRunId);
   const sessionOverviewCards = runReadinessCards().slice(1, 4);
 
   function sessionOverviewTitle(card: ContextReviewCard) {
@@ -20793,17 +20795,19 @@ export default function App() {
               Auto-approve is on for this run setup.
             </ModeNote>
           ) : null}
-          <div className="context-actions">
-            <button
-              type="button"
-              onClick={() => void previewCurrentContext()}
-              disabled={running}
-              title="Preview Context"
-              aria-label="Preview Context"
-            >
-              <ButtonLabel icon="context">Preview</ButtonLabel>
-            </button>
-          </div>
+          {showContextPreviewAction ? (
+            <div className="context-actions">
+              <button
+                type="button"
+                onClick={() => void previewCurrentContext()}
+                disabled={running}
+                title="Preview Context"
+                aria-label="Preview Context"
+              >
+                <ButtonLabel icon="context">Preview</ButtonLabel>
+              </button>
+            </div>
+          ) : null}
           <div className="context-disclosure-grid">
             {showContextRunCheck ? (
               <details

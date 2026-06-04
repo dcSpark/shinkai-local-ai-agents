@@ -34646,13 +34646,13 @@ export default function App() {
             className="advanced-controls"
             style={sectionThemeStyle(activeSection)}
           >
-            <summary>
+            <summary title="Show action input fields">
               <span className="advanced-controls-icon" aria-hidden="true">
                 <AppIcon name={activeVisual.secondaryIcon} />
               </span>
               <span className="advanced-controls-copy">
-                <strong>Staged inputs</strong>
-                <span>Payload, target id, and memory scope for focused actions</span>
+                <strong>Action inputs</strong>
+                <span>Target, payload, and memory scope</span>
               </span>
             </summary>
             <label>
@@ -34675,7 +34675,7 @@ export default function App() {
               <input
                 value={opsId}
                 onChange={(e) => setOpsId(e.target.value)}
-                placeholder="tool, model, prompt, conversation, artifact, skill, adapter, or batch"
+                placeholder="tool, prompt, run, artifact, skill, or adapter id"
                 disabled={running}
               />
             </label>

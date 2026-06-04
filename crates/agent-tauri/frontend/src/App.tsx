@@ -19897,6 +19897,8 @@ export default function App() {
     Boolean(memoryTopics.trim()) ||
     memoryBackends.length > 0 ||
     Boolean(memoryBackendProbe);
+  const showPromptSaveAction = Boolean(opsId.trim() || opsValue.trim());
+  const showPromptTargetActions = Boolean(opsId.trim());
   const showConversationTargetActions = Boolean(opsId.trim());
   const showProfileTargetActions = Boolean(opsId.trim());
   const runControlVisualSection: ActiveSection =
@@ -27080,46 +27082,52 @@ export default function App() {
                 >
                   <ButtonLabel icon="prompt">List</ButtonLabel>
                 </button>
-                <button
-                  type="button"
-                  title="Save prompt Id with Value as the prompt body."
-                  onClick={() => void savePromptFromOps()}
-                  disabled={running || !opsValue.trim() || !opsId.trim()}
-                >
-                  <ButtonLabel icon="prompt">Save</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Show saved prompt Id."
-                  onClick={() => void showPromptFromOps()}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="prompt">Show</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Load saved prompt Id into the composer."
-                  onClick={() => void usePromptFromOps()}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="chat">Use</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Run saved prompt Id immediately."
-                  onClick={() => void runPromptFromOps()}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="control">Run</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Preview the exact context for saved prompt Id."
-                  onClick={() => void previewPromptFromOps()}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="context">Preview</ButtonLabel>
-                </button>
+                {showPromptSaveAction ? (
+                  <button
+                    type="button"
+                    title="Save prompt Id with Value as the prompt body."
+                    onClick={() => void savePromptFromOps()}
+                    disabled={running || !opsValue.trim() || !opsId.trim()}
+                  >
+                    <ButtonLabel icon="prompt">Save</ButtonLabel>
+                  </button>
+                ) : null}
+                {showPromptTargetActions ? (
+                  <>
+                    <button
+                      type="button"
+                      title="Show saved prompt Id."
+                      onClick={() => void showPromptFromOps()}
+                      disabled={running || !opsId.trim()}
+                    >
+                      <ButtonLabel icon="prompt">Show</ButtonLabel>
+                    </button>
+                    <button
+                      type="button"
+                      title="Load saved prompt Id into the composer."
+                      onClick={() => void usePromptFromOps()}
+                      disabled={running || !opsId.trim()}
+                    >
+                      <ButtonLabel icon="chat">Use</ButtonLabel>
+                    </button>
+                    <button
+                      type="button"
+                      title="Run saved prompt Id immediately."
+                      onClick={() => void runPromptFromOps()}
+                      disabled={running || !opsId.trim()}
+                    >
+                      <ButtonLabel icon="control">Run</ButtonLabel>
+                    </button>
+                    <button
+                      type="button"
+                      title="Preview the exact context for saved prompt Id."
+                      onClick={() => void previewPromptFromOps()}
+                      disabled={running || !opsId.trim()}
+                    >
+                      <ButtonLabel icon="context">Preview</ButtonLabel>
+                    </button>
+                  </>
+                ) : null}
               </div>
             </div>
             ) : null}

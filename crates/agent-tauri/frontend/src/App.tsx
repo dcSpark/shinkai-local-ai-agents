@@ -19868,6 +19868,8 @@ export default function App() {
     capabilityDrafts.length > 0 ||
     Boolean(capabilityDoctorReport) ||
     capabilityKind !== "skill";
+  const showSkillTargetAction = Boolean(opsId.trim());
+  const showSkillPreviewAction = loadSkills || skillDocs.length > 0;
   const modelDoctorCardTone = modelDoctorReport
     ? modelDoctorTone(modelDoctorReport)
     : "neutral";
@@ -28519,22 +28521,26 @@ export default function App() {
                 >
                   <ButtonLabel icon="skill">List</ButtonLabel>
                 </button>
-                <button
-                  type="button"
-                  title="Show quarantined or allowed skill Id."
-                  onClick={() => void showSkillFromOps()}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="skill">Show</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Turn skill loading on and preview the next agent context."
-                  onClick={() => void previewWithSkillsFromOps()}
-                  disabled={running}
-                >
-                  <ButtonLabel icon="context">Preview</ButtonLabel>
-                </button>
+                {showSkillTargetAction ? (
+                  <button
+                    type="button"
+                    title="Show quarantined or allowed skill Id."
+                    onClick={() => void showSkillFromOps()}
+                    disabled={running}
+                  >
+                    <ButtonLabel icon="skill">Show</ButtonLabel>
+                  </button>
+                ) : null}
+                {showSkillPreviewAction ? (
+                  <button
+                    type="button"
+                    title="Turn skill loading on and preview the next agent context."
+                    onClick={() => void previewWithSkillsFromOps()}
+                    disabled={running}
+                  >
+                    <ButtonLabel icon="context">Preview</ButtonLabel>
+                  </button>
+                ) : null}
               </div>
               {skillDocs.length ? (
                 <EmptyNote section="skills" icon="skill">

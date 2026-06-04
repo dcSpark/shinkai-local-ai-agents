@@ -19882,7 +19882,31 @@ export default function App() {
   );
   const showComposerPreviewAction = input.trim().length > 0;
   const showComposerAdvancedControls =
-    showComposerPreviewAction || running || Boolean(lastRunId) || Boolean(opsId.trim());
+    showComposerPreviewAction ||
+    running ||
+    Boolean(lastRunId) ||
+    Boolean(opsId.trim());
+  const showContextRunCheck =
+    showComposerPreviewAction ||
+    running ||
+    Boolean(lastRunId) ||
+    Boolean(contextPreview) ||
+    Boolean(conversationId.trim()) ||
+    Boolean(manualCompactedContext.trim()) ||
+    includeIngestIds.length > 0 ||
+    loadMemory ||
+    loadSkills ||
+    enableShell ||
+    enablePromptRefinement ||
+    rawToolOutput ||
+    !requireApproval ||
+    Boolean(maxToolCalls.trim()) ||
+    Boolean(toolVisibility) ||
+    Boolean(skillVisibility) ||
+    Boolean(allowedTools.trim()) ||
+    Boolean(allowedToolCategories.trim()) ||
+    Boolean(allowedSkillCategories.trim()) ||
+    agentMode !== "workflow";
   const sessionOverviewCards = runReadinessCards().slice(1, 4);
 
   function sessionOverviewTitle(card: ContextReviewCard) {
@@ -20781,48 +20805,53 @@ export default function App() {
             </button>
           </div>
           <div className="context-disclosure-grid">
-          <details
-            className="advanced-controls"
-            style={sectionThemeStyle("chat")}
-          >
-            <summary>
-              <span className="advanced-controls-icon" aria-hidden="true">
-                <AppIcon name="context" />
-              </span>
-              <span className="advanced-controls-copy">
-                <strong>Run check</strong>
-                <span>Agent, budget, safety, sources, and prep</span>
-              </span>
-            </summary>
-            <div className="run-readiness-grid">
-              {runReadinessCards().map((card) => (
-                <div className={`run-readiness-card ${card.tone}`} key={card.title}>
-                  <span className="run-readiness-icon" aria-hidden="true">
-                    <AppIcon name={card.icon} />
+            {showContextRunCheck ? (
+              <details
+                className="advanced-controls"
+                style={sectionThemeStyle("chat")}
+              >
+                <summary>
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="context" />
                   </span>
-                  <div className="run-readiness-copy">
-                    <span>{card.title}</span>
-                    <strong>{card.value}</strong>
-                    <span className="run-readiness-detail">{card.detail}</span>
-                  </div>
+                  <span className="advanced-controls-copy">
+                    <strong>Run check</strong>
+                    <span>Agent, budget, safety, sources, and prep</span>
+                  </span>
+                </summary>
+                <div className="run-readiness-grid">
+                  {runReadinessCards().map((card) => (
+                    <div
+                      className={`run-readiness-card ${card.tone}`}
+                      key={card.title}
+                    >
+                      <span className="run-readiness-icon" aria-hidden="true">
+                        <AppIcon name={card.icon} />
+                      </span>
+                      <div className="run-readiness-copy">
+                        <span>{card.title}</span>
+                        <strong>{card.value}</strong>
+                        <span className="run-readiness-detail">{card.detail}</span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </details>
-          <details
-            className="context-more-controls"
-            style={sectionThemeStyle("chat")}
-          >
-            <summary title="Show additional context settings">
-              <span className="advanced-controls-icon" aria-hidden="true">
-                <AppIcon name="setup" />
-              </span>
-              <span className="advanced-controls-copy">
-                <strong>More settings</strong>
-                <span>Advanced controls</span>
-              </span>
-            </summary>
-            <div className="context-more-grid">
+              </details>
+            ) : null}
+            <details
+              className="context-more-controls"
+              style={sectionThemeStyle("chat")}
+            >
+              <summary title="Show additional context settings">
+                <span className="advanced-controls-icon" aria-hidden="true">
+                  <AppIcon name="setup" />
+                </span>
+                <span className="advanced-controls-copy">
+                  <strong>More settings</strong>
+                  <span>Advanced controls</span>
+                </span>
+              </summary>
+              <div className="context-more-grid">
           <details
             className="advanced-controls"
             style={sectionThemeStyle("chat")}

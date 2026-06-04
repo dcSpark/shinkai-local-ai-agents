@@ -25260,8 +25260,8 @@ export default function App() {
                           <AppIcon name="approval" />
                         </span>
                         <span className="advanced-controls-copy">
-                          <strong>Conversation cleanup</strong>
-                          <span>Preview and remove ranges, branches, or agent-owned conversations</span>
+                          <strong>Delete planning</strong>
+                          <span>Ranges, branches, and agent-owned conversations</span>
                         </span>
                       </summary>
                       <div className="button-grid">
@@ -27561,8 +27561,8 @@ export default function App() {
                           <AppIcon name="artifact" />
                         </span>
                         <span className="advanced-controls-copy">
-                          <strong>Prompt transfer</strong>
-                          <span>Import, export, and delete saved prompts</span>
+                          <strong>Saved prompt files</strong>
+                          <span>Import, export, or delete by staged target</span>
                         </span>
                       </summary>
                       <div className="button-grid">
@@ -28914,8 +28914,8 @@ export default function App() {
                           <AppIcon name="skill" />
                         </span>
                         <span className="advanced-controls-copy">
-                          <strong>Skill transfer</strong>
-                          <span>Import, export, allow, and quarantine by id</span>
+                          <strong>Skill packages</strong>
+                          <span>Import, export, allow, and quarantine by staged id</span>
                         </span>
                       </summary>
                       <div className="button-grid">
@@ -31077,7 +31077,7 @@ export default function App() {
                           <AppIcon name="artifact" />
                         </span>
                         <span className="advanced-controls-copy">
-                          <strong>Artifact maintenance</strong>
+                          <strong>Cached artifacts</strong>
                           <span>Export generated files or remove cached entries</span>
                         </span>
                       </summary>
@@ -31611,8 +31611,8 @@ export default function App() {
                               <AppIcon name="context" />
                             </span>
                             <span className="advanced-controls-copy">
-                              <strong>Compaction transfer</strong>
-                              <span>Import, export, or delete compacted context artifacts</span>
+                              <strong>Context artifacts</strong>
+                              <span>Import, export, or delete compacted context</span>
                             </span>
                           </summary>
                           <div className="button-grid">
@@ -32117,8 +32117,8 @@ export default function App() {
                           <AppIcon name="brand" />
                         </span>
                         <span className="advanced-controls-copy">
-                          <strong>Agent transfer</strong>
-                          <span>Import, export, or delete saved agent configs</span>
+                          <strong>Saved agent files</strong>
+                          <span>Import, export, or delete portable configs</span>
                         </span>
                       </summary>
                       <div className="button-grid">
@@ -34616,13 +34616,13 @@ export default function App() {
             className="advanced-controls"
             style={sectionThemeStyle(activeSection)}
           >
-            <summary title="Show action input fields">
+            <summary title="Show staged value fields">
               <span className="advanced-controls-icon" aria-hidden="true">
                 <AppIcon name={activeVisual.secondaryIcon} />
               </span>
               <span className="advanced-controls-copy">
-                <strong>Action inputs</strong>
-                <span>Target, payload, and memory scope</span>
+                <strong>Stage values</strong>
+                <span>Payload, target, and memory scope</span>
               </span>
             </summary>
             <label>

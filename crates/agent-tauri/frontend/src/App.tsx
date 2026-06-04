@@ -27088,13 +27088,13 @@ export default function App() {
                 className="context-more-controls"
                 style={sectionThemeStyle("memory")}
               >
-                <summary title="Show additional memory settings">
+                <summary title="Show memory administration tools">
                   <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="setup" />
+                    <AppIcon name="memory" />
                   </span>
                   <span className="advanced-controls-copy">
-                    <strong>More settings</strong>
-                    <span>Generation, classification, maintenance, and transfer</span>
+                    <strong>Memory admin</strong>
+                    <span>Generate, classify, and transfer</span>
                   </span>
                 </summary>
                 <div className="context-more-grid">

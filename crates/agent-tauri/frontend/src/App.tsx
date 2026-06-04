@@ -20075,6 +20075,7 @@ export default function App() {
   const showChatSessionOverview = showSessionOverview && activeSection === "chat";
   const showWorkspaceSessionOverview =
     showSessionOverview && activeSection !== "chat";
+  const showInspectorSectionOverview = !showWorkspaceSessionOverview;
   const visibleTranscript = transcript.filter(
     (line, index) =>
       !(index === 0 && line.kind === "event" && line.text.startsWith("Welcome.")),
@@ -20454,7 +20455,9 @@ export default function App() {
       </main>
 
       <aside className="inspector">
-        <SectionOverview section={activeSection} />
+        {showInspectorSectionOverview ? (
+          <SectionOverview section={activeSection} />
+        ) : null}
         {activeSection === "chat" ? (
         <section className="panel">
           <PanelTitle title="Agent setup" section="chat" icon="setup" />

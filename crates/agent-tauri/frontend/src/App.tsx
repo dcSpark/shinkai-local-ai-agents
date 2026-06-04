@@ -19859,6 +19859,9 @@ export default function App() {
     Boolean(storagePruneResult);
   const showAdapterImportAction = Boolean(opsValue.trim());
   const showAdapterTargetActions = Boolean(opsId.trim());
+  const showAdapterTransferControls = Boolean(opsId.trim() || opsValue.trim());
+  const showAdapterTransferImportAction = Boolean(opsValue.trim());
+  const showAdapterTransferTargetActions = Boolean(opsId.trim());
   const showArtifactVoiceControls =
     recordingVoice ||
     voiceOutputBusy ||
@@ -33274,70 +33277,78 @@ export default function App() {
                   No adapter review loaded. List adapters or run Doctor before changing quarantine policy.
                 </EmptyNote>
               ) : null}
-              <details
-                className="context-more-controls"
-                style={sectionThemeStyle("adapters")}
-              >
-                <summary title="Show additional adapter settings">
-                  <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="setup" />
-                  </span>
-                  <span className="advanced-controls-copy">
-                    <strong>More settings</strong>
-                    <span>Adapter transfer and quarantine policy</span>
-                  </span>
-                </summary>
-                <div className="context-more-grid">
-                  <details
-                    className="advanced-controls"
-                    style={sectionThemeStyle("adapters")}
-                  >
-                    <summary>
-                      <span className="advanced-controls-icon" aria-hidden="true">
-                        <AppIcon name="approval" />
-                      </span>
-                      <span className="advanced-controls-copy">
-                        <strong>Adapter transfer</strong>
-                        <span>Import/export manifests and quarantine by id</span>
-                      </span>
-                    </summary>
-                    <div className="button-grid">
-                      <button
-                        type="button"
-                        title="Import portable adapter manifest JSON from Value."
-                        onClick={() => void importAdapterManifestFromOps()}
-                        disabled={running || !opsValue.trim()}
-                      >
-                        <ButtonLabel icon="artifact">Import Manifest</ButtonLabel>
-                      </button>
-                      <button
-                        type="button"
-                        title="Export adapter package Id to Value, or to /tmp when Value is blank."
-                        onClick={() => void exportAdapterFromOps()}
-                        disabled={running || !opsId.trim()}
-                      >
-                        <ButtonLabel icon="artifact">Export Adapter</ButtonLabel>
-                      </button>
-                      <button
-                        type="button"
-                        title="Allow adapter package Id."
-                        onClick={() => void setAdapterQuarantine(true)}
-                        disabled={running || !opsId.trim()}
-                      >
-                        <ButtonLabel icon="approval">Allow Adapter</ButtonLabel>
-                      </button>
-                      <button
-                        type="button"
-                        title="Block adapter package Id."
-                        onClick={() => void setAdapterQuarantine(false)}
-                        disabled={running || !opsId.trim()}
-                      >
-                        <ButtonLabel icon="approval">Block Adapter</ButtonLabel>
-                      </button>
-                    </div>
-                  </details>
-                </div>
-              </details>
+              {showAdapterTransferControls ? (
+                <details
+                  className="context-more-controls"
+                  style={sectionThemeStyle("adapters")}
+                >
+                  <summary title="Show additional adapter settings">
+                    <span className="advanced-controls-icon" aria-hidden="true">
+                      <AppIcon name="setup" />
+                    </span>
+                    <span className="advanced-controls-copy">
+                      <strong>More settings</strong>
+                      <span>Adapter transfer and quarantine policy</span>
+                    </span>
+                  </summary>
+                  <div className="context-more-grid">
+                    <details
+                      className="advanced-controls"
+                      style={sectionThemeStyle("adapters")}
+                    >
+                      <summary>
+                        <span className="advanced-controls-icon" aria-hidden="true">
+                          <AppIcon name="approval" />
+                        </span>
+                        <span className="advanced-controls-copy">
+                          <strong>Adapter transfer</strong>
+                          <span>Import/export manifests and quarantine by id</span>
+                        </span>
+                      </summary>
+                      <div className="button-grid">
+                        {showAdapterTransferImportAction ? (
+                          <button
+                            type="button"
+                            title="Import portable adapter manifest JSON from Value."
+                            onClick={() => void importAdapterManifestFromOps()}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="artifact">Import Manifest</ButtonLabel>
+                          </button>
+                        ) : null}
+                        {showAdapterTransferTargetActions ? (
+                          <>
+                            <button
+                              type="button"
+                              title="Export adapter package Id to Value, or to /tmp when Value is blank."
+                              onClick={() => void exportAdapterFromOps()}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="artifact">Export Adapter</ButtonLabel>
+                            </button>
+                            <button
+                              type="button"
+                              title="Allow adapter package Id."
+                              onClick={() => void setAdapterQuarantine(true)}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="approval">Allow Adapter</ButtonLabel>
+                            </button>
+                            <button
+                              type="button"
+                              title="Block adapter package Id."
+                              onClick={() => void setAdapterQuarantine(false)}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="approval">Block Adapter</ButtonLabel>
+                            </button>
+                          </>
+                        ) : null}
+                      </div>
+                    </details>
+                  </div>
+                </details>
+              ) : null}
             </div>
             ) : null}
 

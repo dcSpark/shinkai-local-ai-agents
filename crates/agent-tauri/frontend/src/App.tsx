@@ -25749,13 +25749,13 @@ export default function App() {
                 className="context-more-controls"
                 style={sectionThemeStyle("profiles")}
               >
-                <summary title="Show additional profile settings">
+                <summary title="Show profile administration tools">
                   <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="setup" />
+                    <AppIcon name="approval" />
                   </span>
                   <span className="advanced-controls-copy">
-                    <strong>More settings</strong>
-                    <span>Access, grants, bundles, and secret storage</span>
+                    <strong>Profile admin</strong>
+                    <span>Access, bundles, and secrets</span>
                   </span>
                 </summary>
                 <div className="context-more-grid">

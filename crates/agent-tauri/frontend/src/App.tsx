@@ -19871,11 +19871,6 @@ export default function App() {
       if (lastRunId && !running) void loadLastTrace();
       return;
     }
-    if (section === "profiles" && !running) {
-      void showCurrentProfileFromOps();
-      void listProfilesFromOps();
-      void listProfileGrantsFromOps();
-    }
   }
 
   function showOperationsPanel() {

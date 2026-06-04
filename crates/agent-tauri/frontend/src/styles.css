@@ -2193,8 +2193,40 @@ textarea:disabled {
 
 .context-actions {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(5.5rem, 1fr));
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.context-actions button {
+  min-width: 0;
+  min-height: 4.15rem;
+  padding: 0.5rem 0.35rem;
+  border-color: #2a2d34;
+  background: #15171b;
+}
+
+.context-actions button:hover:not(:disabled) {
+  border-color: var(--section-accent);
+  background: var(--section-surface);
+}
+
+.context-actions .button-label.with-icon {
+  display: grid;
+  justify-items: center;
+  gap: 0.34rem;
+  line-height: 1.12;
+}
+
+.context-actions .button-label .app-icon {
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0.32rem;
+  border: 1px solid var(--section-accent);
+  border-radius: 8px;
+  background: var(--section-surface);
+  color: var(--section-accent);
+  box-sizing: content-box;
 }
 
 .context-disclosure-grid,

@@ -21020,7 +21020,7 @@ export default function App() {
             </ModeNote>
           ) : null}
           {showContextPreviewAction ? (
-            <div className="context-actions">
+            <div className="context-actions" style={sectionThemeStyle("chat")}>
               <button
                 type="button"
                 onClick={() => void previewCurrentContext()}
@@ -23513,7 +23513,7 @@ export default function App() {
         {activeSection === "trace" ? (
         <section className="panel">
           <PanelTitle title="Trace" section="trace" />
-          <div className="context-actions">
+          <div className="context-actions" style={sectionThemeStyle("trace")}>
             <button
               type="button"
               title="List recent persisted trace runs."

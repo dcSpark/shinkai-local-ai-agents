@@ -18299,7 +18299,11 @@ export default function App() {
     const apiTarget =
       apiBaseUrl.trim() ||
       defaultApiBaseUrlForProvider(provider) ||
-      (selectedProviderDescriptor?.local ? "local runtime" : "native provider");
+      (provider === "fake"
+        ? "demo runtime"
+        : selectedProviderDescriptor?.local
+          ? "local runtime"
+          : "native provider");
     const hasRuntimeOptions =
       Boolean(runMaxOutputTokens.trim()) ||
       Boolean(runTemperature.trim()) ||
@@ -18337,7 +18341,7 @@ export default function App() {
     return [
       {
         title: "Provider",
-        value: selectedProviderDescriptor?.name || provider,
+        value: providerDisplayName(provider),
         detail: `${apiTarget}; ${keyLabel}.`,
         icon: "setup",
         tone:
@@ -18349,7 +18353,7 @@ export default function App() {
       },
       {
         title: "Model",
-        value: modelName,
+        value: modelDisplayName(provider, modelName),
         detail: `context ${modelMaxContextTokens.trim() || "catalog"}; output ${runMaxOutputTokens.trim() || "default"}.`,
         icon: "brand",
         tone: model.trim() ? "ok" : "neutral",
@@ -18387,7 +18391,9 @@ export default function App() {
 
   function providerSelectOptions() {
     const seen = new Set<string>();
-    const items: Array<{ id: Provider; label: string }> = [{ id: "fake", label: "fake" }];
+    const items: Array<{ id: Provider; label: string }> = [
+      { id: "fake", label: "Demo provider" },
+    ];
     seen.add("fake");
     const fallbackProviders = ["rig", "ollama", "llama_cpp", "anthropic", "gemini"];
     const descriptors =
@@ -18544,6 +18550,20 @@ export default function App() {
       default:
         return "gpt-4o-mini";
     }
+  }
+
+  function providerDisplayName(value: Provider) {
+    const descriptor = descriptorForProvider(value);
+    if (value === "fake") return "Demo provider";
+    if (descriptor?.name) return descriptor.name;
+    return value === "llama_cpp" ? "llama.cpp" : value;
+  }
+
+  function modelDisplayName(value: Provider, modelName: string) {
+    if (value === "fake" && modelName === defaultModelForProvider(value)) {
+      return "Demo model";
+    }
+    return modelName;
   }
 
   function defaultApiKeyEnvForProvider(value: Provider) {

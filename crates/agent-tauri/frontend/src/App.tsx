@@ -1045,6 +1045,9 @@ function SectionOverview({ section }: { section: ActiveSection }) {
       aria-label={`${visual.label}: ${visual.hint}`}
       style={sectionThemeStyle(section)}
     >
+      <div className="workspace-overview-visual" aria-hidden="true">
+        <FeatureVisual section={section} />
+      </div>
       <SectionCueMap section={section} />
     </section>
   );

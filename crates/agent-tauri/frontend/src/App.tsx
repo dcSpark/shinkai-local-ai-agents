@@ -19881,8 +19881,14 @@ export default function App() {
   const showSkillTransferTargetActions = Boolean(opsId.trim());
   const showSkillTransferImportAction = Boolean(opsValue.trim());
   const showCompactionTargetActions = Boolean(opsId.trim());
+  const showCompactionTransferControls = Boolean(opsId.trim() || opsValue.trim());
+  const showCompactionTransferTargetActions = Boolean(opsId.trim());
+  const showCompactionTransferImportAction = Boolean(opsValue.trim());
   const showAgentTargetActions = Boolean(opsId.trim());
   const showAgentSaveAction = Boolean(opsId.trim() || opsValue.trim());
+  const showAgentTransferControls = Boolean(opsId.trim() || opsValue.trim());
+  const showAgentTransferTargetActions = Boolean(opsId.trim());
+  const showAgentTransferImportAction = Boolean(opsValue.trim());
   const modelDoctorCardTone = modelDoctorReport
     ? modelDoctorTone(modelDoctorReport)
     : "neutral";
@@ -31396,63 +31402,71 @@ export default function App() {
                   No compacted-context artifacts loaded. List saved artifacts or keep one from preview.
                 </EmptyNote>
               )}
-                  <details
-                    className="context-more-controls"
-                    style={sectionThemeStyle("chat")}
-                  >
-                    <summary title="Show additional compaction settings">
-                      <span className="advanced-controls-icon" aria-hidden="true">
-                        <AppIcon name="setup" />
-                      </span>
-                      <span className="advanced-controls-copy">
-                        <strong>More settings</strong>
-                        <span>Import/export compacted context and delete saved artifacts</span>
-                      </span>
-                    </summary>
-                    <div className="context-more-grid">
-                      <details
-                        className="advanced-controls"
-                        style={sectionThemeStyle("chat")}
-                      >
-                        <summary>
-                          <span className="advanced-controls-icon" aria-hidden="true">
-                            <AppIcon name="context" />
-                          </span>
-                          <span className="advanced-controls-copy">
-                            <strong>Compaction transfer</strong>
-                            <span>Import, export, or delete compacted context artifacts</span>
-                          </span>
-                        </summary>
-                        <div className="button-grid">
-                          <button
-                            type="button"
-                            title="Export compacted-context artifact Id to Value, or to /tmp when Value is blank."
-                            onClick={() => void exportCompactionFromOps()}
-                            disabled={running || !opsId.trim()}
-                          >
-                            <ButtonLabel icon="artifact">Export Compact</ButtonLabel>
-                          </button>
-                          <button
-                            type="button"
-                            title="Import a compacted-context JSON artifact from the path in Value."
-                            onClick={() => void importCompactionFromOps()}
-                            disabled={running || !opsValue.trim()}
-                          >
-                            <ButtonLabel icon="artifact">Import Compact</ButtonLabel>
-                          </button>
-                          <button
-                            type="button"
-                            className="danger"
-                            title="Delete compacted-context artifact Id."
-                            onClick={() => void deleteCompactionFromOps()}
-                            disabled={running || !opsId.trim()}
-                          >
-                            <ButtonLabel icon="approval">Delete Compact</ButtonLabel>
-                          </button>
-                        </div>
-                      </details>
-                    </div>
-                  </details>
+                  {showCompactionTransferControls ? (
+                    <details
+                      className="context-more-controls"
+                      style={sectionThemeStyle("chat")}
+                    >
+                      <summary title="Show additional compaction settings">
+                        <span className="advanced-controls-icon" aria-hidden="true">
+                          <AppIcon name="setup" />
+                        </span>
+                        <span className="advanced-controls-copy">
+                          <strong>More settings</strong>
+                          <span>Import/export compacted context and delete saved artifacts</span>
+                        </span>
+                      </summary>
+                      <div className="context-more-grid">
+                        <details
+                          className="advanced-controls"
+                          style={sectionThemeStyle("chat")}
+                        >
+                          <summary>
+                            <span className="advanced-controls-icon" aria-hidden="true">
+                              <AppIcon name="context" />
+                            </span>
+                            <span className="advanced-controls-copy">
+                              <strong>Compaction transfer</strong>
+                              <span>Import, export, or delete compacted context artifacts</span>
+                            </span>
+                          </summary>
+                          <div className="button-grid">
+                            {showCompactionTransferTargetActions ? (
+                              <button
+                                type="button"
+                                title="Export compacted-context artifact Id to Value, or to /tmp when Value is blank."
+                                onClick={() => void exportCompactionFromOps()}
+                                disabled={running}
+                              >
+                                <ButtonLabel icon="artifact">Export Compact</ButtonLabel>
+                              </button>
+                            ) : null}
+                            {showCompactionTransferImportAction ? (
+                              <button
+                                type="button"
+                                title="Import a compacted-context JSON artifact from the path in Value."
+                                onClick={() => void importCompactionFromOps()}
+                                disabled={running}
+                              >
+                                <ButtonLabel icon="artifact">Import Compact</ButtonLabel>
+                              </button>
+                            ) : null}
+                            {showCompactionTransferTargetActions ? (
+                              <button
+                                type="button"
+                                className="danger"
+                                title="Delete compacted-context artifact Id."
+                                onClick={() => void deleteCompactionFromOps()}
+                                disabled={running}
+                              >
+                                <ButtonLabel icon="approval">Delete Compact</ButtonLabel>
+                              </button>
+                            ) : null}
+                          </div>
+                        </details>
+                      </div>
+                    </details>
+                  ) : null}
                 </div>
 
                 <div className="operation-group">
@@ -31891,71 +31905,77 @@ export default function App() {
                   No saved agents loaded. List agents or save the current setup.
                 </EmptyNote>
               )}
-              <details
-                className="context-more-controls"
-                style={sectionThemeStyle("chat")}
-              >
-                <summary title="Show additional saved-agent settings">
-                  <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="setup" />
-                  </span>
-                  <span className="advanced-controls-copy">
-                    <strong>More settings</strong>
-                    <span>Portable agent import/export and destructive delete</span>
-                  </span>
-                </summary>
-                <div className="context-more-grid">
-                  <details
-                    className="advanced-controls"
-                    style={sectionThemeStyle("chat")}
-                  >
-                    <summary>
-                      <span className="advanced-controls-icon" aria-hidden="true">
-                        <AppIcon name="brand" />
-                      </span>
-                      <span className="advanced-controls-copy">
-                        <strong>Agent transfer</strong>
-                        <span>Import, export, or delete saved agent configs</span>
-                      </span>
-                    </summary>
-                    <div className="button-grid">
-                      <button
-                        type="button"
-                        title="Export saved agent Id to Value, or to /tmp when Value is blank."
-                        onClick={() => void exportAgentFromOps()}
-                        disabled={running || !opsId.trim()}
-                      >
-                        <ButtonLabel icon="artifact">Export Agent</ButtonLabel>
-                      </button>
-                      <button
-                        type="button"
-                        title="Import saved agent config from Value path."
-                        onClick={() => void importAgentFromOps()}
-                        disabled={running || !opsValue.trim()}
-                      >
-                        <ButtonLabel icon="artifact">Import Agent</ButtonLabel>
-                      </button>
-                      <button
-                        type="button"
-                        className="danger"
-                        title={
-                          knownProfileGrantedAgent(opsId.trim())
-                            ? "This agent is shared from another profile; revoke the profile grant to remove access."
-                            : "Delete saved agent Id."
-                        }
-                        onClick={() => void deleteAgentFromOps()}
-                        disabled={
-                          running ||
-                          !opsId.trim() ||
-                          knownProfileGrantedAgent(opsId.trim())
-                        }
-                      >
-                        <ButtonLabel icon="approval">Delete Agent</ButtonLabel>
-                      </button>
-                    </div>
-                  </details>
-                </div>
-              </details>
+              {showAgentTransferControls ? (
+                <details
+                  className="context-more-controls"
+                  style={sectionThemeStyle("chat")}
+                >
+                  <summary title="Show additional saved-agent settings">
+                    <span className="advanced-controls-icon" aria-hidden="true">
+                      <AppIcon name="setup" />
+                    </span>
+                    <span className="advanced-controls-copy">
+                      <strong>More settings</strong>
+                      <span>Portable agent import/export and destructive delete</span>
+                    </span>
+                  </summary>
+                  <div className="context-more-grid">
+                    <details
+                      className="advanced-controls"
+                      style={sectionThemeStyle("chat")}
+                    >
+                      <summary>
+                        <span className="advanced-controls-icon" aria-hidden="true">
+                          <AppIcon name="brand" />
+                        </span>
+                        <span className="advanced-controls-copy">
+                          <strong>Agent transfer</strong>
+                          <span>Import, export, or delete saved agent configs</span>
+                        </span>
+                      </summary>
+                      <div className="button-grid">
+                        {showAgentTransferTargetActions ? (
+                          <button
+                            type="button"
+                            title="Export saved agent Id to Value, or to /tmp when Value is blank."
+                            onClick={() => void exportAgentFromOps()}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="artifact">Export Agent</ButtonLabel>
+                          </button>
+                        ) : null}
+                        {showAgentTransferImportAction ? (
+                          <button
+                            type="button"
+                            title="Import saved agent config from Value path."
+                            onClick={() => void importAgentFromOps()}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="artifact">Import Agent</ButtonLabel>
+                          </button>
+                        ) : null}
+                        {showAgentTransferTargetActions ? (
+                          <button
+                            type="button"
+                            className="danger"
+                            title={
+                              knownProfileGrantedAgent(opsId.trim())
+                                ? "This agent is shared from another profile; revoke the profile grant to remove access."
+                                : "Delete saved agent Id."
+                            }
+                            onClick={() => void deleteAgentFromOps()}
+                            disabled={
+                              running || knownProfileGrantedAgent(opsId.trim())
+                            }
+                          >
+                            <ButtonLabel icon="approval">Delete Agent</ButtonLabel>
+                          </button>
+                        ) : null}
+                      </div>
+                    </details>
+                  </div>
+                </details>
+              ) : null}
                 </div>
               </div>
             </details>

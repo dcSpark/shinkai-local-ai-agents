@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App chat-library transfer dormant-disclosure suppression | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Chat library now hides compacted-context and saved-agent transfer drawers until a target id or import path is staged, then reveals only the relevant import or export/delete actions instead of opening the library with disabled portable-transfer controls. |
 | App artifact-maintenance dormant-disclosure suppression | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Artifacts maintenance drawer now stays hidden until a generated-artifact id is staged, keeping the first-scan output workspace focused on visual artifact review while preserving export/delete cache controls once a target exists. |
 | App prompt-transfer dormant-disclosure suppression | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Prompts transfer drawer now stays hidden until a saved-prompt id or import path is staged, then reveals only the relevant export/delete or import actions instead of opening with disabled prompt-transfer controls. |
 | App skill-transfer dormant-disclosure suppression | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Skills More settings transfer drawer now stays hidden until a skill/draft id or import path is staged, then reveals only the relevant skill and draft import, export, quarantine, or cleanup actions instead of opening with disabled transfer controls. |

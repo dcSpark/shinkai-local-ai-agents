@@ -19897,28 +19897,7 @@ export default function App() {
   }
 
   function operationsTitle() {
-    switch (activeSection) {
-      case "chat":
-        return "Toolbox";
-      case "conversations":
-        return "Conversations";
-      case "profiles":
-        return "Profiles";
-      case "memory":
-        return "Memory";
-      case "skills":
-        return "Skills";
-      case "prompts":
-        return "Prompts";
-      case "ingest":
-        return "Ingestion";
-      case "artifacts":
-        return "Artifacts";
-      case "adapters":
-        return "Adapters";
-      default:
-        return "Operations";
-    }
+    return activeSection === "chat" ? "Toolbox" : "Actions";
   }
 
   const conversationStats = conversationTreeStats(conversationTree);

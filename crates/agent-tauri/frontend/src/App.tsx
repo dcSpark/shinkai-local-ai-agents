@@ -33430,11 +33430,11 @@ export default function App() {
                 >
                   <summary title="Show additional adapter settings">
                     <span className="advanced-controls-icon" aria-hidden="true">
-                      <AppIcon name="setup" />
+                      <AppIcon name="adapter" />
                     </span>
                     <span className="advanced-controls-copy">
-                      <strong>More settings</strong>
-                      <span>Adapter transfer and quarantine policy</span>
+                      <strong>Transfer</strong>
+                      <span>Manifests and quarantine policy</span>
                     </span>
                   </summary>
                   <div className="context-more-grid">
@@ -33912,10 +33912,10 @@ export default function App() {
               >
                 <summary title="Show additional bridge delivery settings">
                   <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="setup" />
+                    <AppIcon name="trace" />
                   </span>
                   <span className="advanced-controls-copy">
-                    <strong>More settings</strong>
+                    <strong>Dead letters</strong>
                     <span>Retry and dead-letter cleanup</span>
                   </span>
                 </summary>
@@ -33991,10 +33991,10 @@ export default function App() {
               >
                 <summary title="Show additional bundle settings">
                   <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="setup" />
+                    <AppIcon name="artifact" />
                   </span>
                   <span className="advanced-controls-copy">
-                    <strong>More settings</strong>
+                    <strong>Bundle files</strong>
                     <span>Custom bundle import and export</span>
                   </span>
                 </summary>
@@ -34572,10 +34572,10 @@ export default function App() {
               >
                 <summary title="Show additional storage maintenance settings">
                   <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="setup" />
+                    <AppIcon name="memory" />
                   </span>
                   <span className="advanced-controls-copy">
-                    <strong>More settings</strong>
+                    <strong>Cache pruning</strong>
                     <span>Apply cache pruning after planning retention</span>
                   </span>
                 </summary>

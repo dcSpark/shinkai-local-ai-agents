@@ -800,19 +800,41 @@ function FieldLabel({
 function EmptyNote({
   section,
   icon,
+  title,
+  detail,
   children,
 }: {
   section: ActiveSection;
   icon?: IconName;
-  children: ReactNode;
+  title?: ReactNode;
+  detail?: ReactNode;
+  children?: ReactNode;
 }) {
   const iconName = icon ?? sectionVisual(section).icon;
+  const hasStructuredCopy = Boolean(title || detail);
+  const hasChildren = children !== undefined && children !== null;
   return (
     <div className="empty-note with-icon" style={sectionThemeStyle(section)}>
       <span className="empty-note-icon" aria-hidden="true">
         <AppIcon name={iconName} />
       </span>
-      <div className="empty-note-copy">{children}</div>
+      <div
+        className={
+          hasStructuredCopy
+            ? "empty-note-copy structured"
+            : "empty-note-copy"
+        }
+      >
+        {hasStructuredCopy ? (
+          <>
+            {title ? <strong>{title}</strong> : null}
+            {detail ? <span>{detail}</span> : null}
+            {hasChildren ? <span>{children}</span> : null}
+          </>
+        ) : (
+          children
+        )}
+      </div>
     </div>
   );
 }
@@ -23771,7 +23793,12 @@ export default function App() {
               />
             </div>
           ) : (
-            <EmptyNote section="trace" icon="trace">No trace loaded.</EmptyNote>
+            <EmptyNote
+              section="trace"
+              icon="trace"
+              title="No trace loaded"
+              detail="Run or load a trace to inspect model, context, tools, cost, and approvals."
+            />
           )}
           <details
             className="context-more-controls"
@@ -27472,10 +27499,12 @@ export default function App() {
                   })}
                 </div>
               ) : (
-                <EmptyNote section="prompts" icon="prompt">
-                  No saved prompts loaded. List prompts, or save a staged prompt
-                  name and body.
-                </EmptyNote>
+                <EmptyNote
+                  section="prompts"
+                  icon="prompt"
+                  title="No saved prompts loaded"
+                  detail="List prompts, or save a staged prompt when a reusable task is ready."
+                />
               )}
               {showPromptTransferControls ? (
                 <details
@@ -28231,9 +28260,12 @@ export default function App() {
                   })}
                 </div>
               ) : (
-                <EmptyNote section="prompts" icon="setup">
-                  No saved models loaded. List models, or save the current controls.
-                </EmptyNote>
+                <EmptyNote
+                  section="prompts"
+                  icon="setup"
+                  title="No saved models loaded"
+                  detail="List models, or save the current provider controls for reuse."
+                />
               )}
               {modelProviderDescriptors.length ? (
                 <div className="ingestion-review">
@@ -28701,9 +28733,12 @@ export default function App() {
                   {skillDocs.filter(hasHighRiskSkillFindings).length} blocked.
                 </EmptyNote>
               ) : (
-                <EmptyNote section="skills" icon="skill">
-                  No imported skills loaded. Skills stay out of context until allowed.
-                </EmptyNote>
+                <EmptyNote
+                  section="skills"
+                  icon="skill"
+                  title="No imported skills loaded"
+                  detail="Skills stay out of context until they are reviewed and allowed."
+                />
               )}
               <details
                 className="context-more-controls"
@@ -28803,9 +28838,12 @@ export default function App() {
                       .length} review needed.
                 </EmptyNote>
               ) : (
-                <EmptyNote section="skills" icon="tools">
-                  No capability drafts loaded. Drafts stay quarantined until allowed.
-                </EmptyNote>
+                <EmptyNote
+                  section="skills"
+                  icon="tools"
+                  title="No capability drafts loaded"
+                  detail="Draft tools, skills, agents, and subagents stay quarantined until allowed."
+                />
               )}
                 </div>
               </details>
@@ -30878,9 +30916,12 @@ export default function App() {
                   })}
                 </div>
               ) : (
-                <EmptyNote section="artifacts" icon="artifact">
-                  No generated artifacts loaded.
-                </EmptyNote>
+                <EmptyNote
+                  section="artifacts"
+                  icon="artifact"
+                  title="No generated artifacts loaded"
+                  detail="Generate, list, or preview an output before opening or exporting files."
+                />
               )}
               {artifactPreview ? (
                 <div className="artifact-preview">
@@ -31496,9 +31537,12 @@ export default function App() {
                   ))}
                 </div>
               ) : (
-                <EmptyNote section="chat" icon="context">
-                  No compacted-context artifacts loaded. List saved artifacts or keep one from preview.
-                </EmptyNote>
+                <EmptyNote
+                  section="chat"
+                  icon="context"
+                  title="No compacted context loaded"
+                  detail="List saved artifacts or keep one from a context preview."
+                />
               )}
                   {showCompactionTransferControls ? (
                     <details
@@ -31999,9 +32043,12 @@ export default function App() {
                   })}
                 </div>
               ) : (
-                <EmptyNote section="chat" icon="brand">
-                  No saved agents loaded. List agents or save the current setup.
-                </EmptyNote>
+                <EmptyNote
+                  section="chat"
+                  icon="brand"
+                  title="No saved agents loaded"
+                  detail="List agents or save the current setup when it is ready to reuse."
+                />
               )}
               {showAgentTransferControls ? (
                 <details
@@ -32326,13 +32373,21 @@ export default function App() {
                       ))}
                     </div>
                   ) : (
-                    <EmptyNote section="chat" icon="tools">No visible tools loaded.</EmptyNote>
+                    <EmptyNote
+                      section="chat"
+                      icon="tools"
+                      title="No visible tools loaded"
+                      detail="Run a catalog check before staging direct tool calls."
+                    />
                   )}
                 </>
               ) : (
-                <EmptyNote section="chat" icon="tools">
-                  No tool catalog loaded yet. List tools before staging a manual call.
-                </EmptyNote>
+                <EmptyNote
+                  section="chat"
+                  icon="tools"
+                  title="No tool catalog loaded"
+                  detail="List tools before staging a manual call."
+                />
               )}
               <details
                 className="advanced-controls"
@@ -33318,9 +33373,12 @@ export default function App() {
                 </div>
               ) : null}
               {!adapterDoctorReport && !adapterPackages.length ? (
-                <EmptyNote section="adapters" icon="adapter">
-                  No adapter review loaded. List adapters or run Doctor before changing quarantine policy.
-                </EmptyNote>
+                <EmptyNote
+                  section="adapters"
+                  icon="adapter"
+                  title="No adapter review loaded"
+                  detail="List adapters or run Doctor before changing quarantine policy."
+                />
               ) : null}
               {showAdapterTransferControls ? (
                 <details
@@ -33795,9 +33853,12 @@ export default function App() {
                   ))}
                 </div>
               ) : (
-                <EmptyNote section="adapters" icon="conversation">
-                  No bridge delivery dead letters loaded.
-                </EmptyNote>
+                <EmptyNote
+                  section="adapters"
+                  icon="conversation"
+                  title="No bridge delivery dead letters loaded"
+                  detail="List failed deliveries when a messaging bridge needs retry or cleanup."
+                />
               )}
               {bridgeDeliveryResult ? (
                 bridgeDeliveryResultCard(bridgeDeliveryResult)
@@ -33874,9 +33935,12 @@ export default function App() {
               {bundleStatus ? (
                 <BundleStatusCard status={bundleStatus} section="adapters" />
               ) : (
-                <EmptyNote section="adapters" icon="artifact">
-                  No bundle activity yet.
-                </EmptyNote>
+                <EmptyNote
+                  section="adapters"
+                  icon="artifact"
+                  title="No bundle activity yet"
+                  detail="Create a backup before importing or exporting custom bundles."
+                />
               )}
               <details
                 className="context-more-controls"
@@ -33948,9 +34012,12 @@ export default function App() {
                 </button>
               </div>
               {!storageReport && !storagePruneResult ? (
-                <EmptyNote section="adapters" icon="memory">
-                  No storage diagnostics loaded yet.
-                </EmptyNote>
+                <EmptyNote
+                  section="adapters"
+                  icon="memory"
+                  title="No storage diagnostics loaded"
+                  detail="Run a storage report before planning cache maintenance."
+                />
               ) : null}
               {storageReport ? (
                 <div className="storage-report">
@@ -34762,9 +34829,12 @@ export default function App() {
                 ))}
               </div>
             ) : (
-              <EmptyNote section="approvals" icon="approval">
-                No approvals loaded. Use Review after a run requests approval.
-              </EmptyNote>
+              <EmptyNote
+                section="approvals"
+                icon="approval"
+                title="No approvals loaded"
+                detail="Use Review after a run requests a gated action."
+              />
             )
           ) : null}
           {showRunControlActions ? (

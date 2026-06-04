@@ -7740,6 +7740,25 @@ textarea:disabled {
   overflow-wrap: anywhere;
 }
 
+.empty-note-copy.structured {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.empty-note-copy.structured strong {
+  color: #f1f2f4;
+  font-size: 0.82rem;
+  font-weight: 850;
+  line-height: 1.2;
+}
+
+.empty-note-copy.structured span {
+  color: #c3c8d0;
+  font-size: 0.76rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
 .trace-summary {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(7.2rem, 1fr));

@@ -1537,7 +1537,9 @@ textarea:disabled {
 
 .composer textarea:focus {
   border-color: var(--section-accent);
-  box-shadow: 0 0 0 2px rgba(42, 166, 182, 0.18);
+  box-shadow:
+    0 0 0 2px var(--section-surface),
+    0 0 0 3px var(--section-accent);
 }
 
 .slash-command-menu {

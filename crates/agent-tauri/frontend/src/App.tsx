@@ -19872,6 +19872,8 @@ export default function App() {
   const showGeneratedArtifactTargetActions = Boolean(opsId.trim());
   const showSkillTargetAction = Boolean(opsId.trim());
   const showSkillPreviewAction = loadSkills || skillDocs.length > 0;
+  const showAgentTargetActions = Boolean(opsId.trim());
+  const showAgentSaveAction = Boolean(opsId.trim() || opsValue.trim());
   const modelDoctorCardTone = modelDoctorReport
     ? modelDoctorTone(modelDoctorReport)
     : "neutral";
@@ -31394,30 +31396,36 @@ export default function App() {
                 >
                   <ButtonLabel icon="brand">List</ButtonLabel>
                 </button>
-                <button
-                  type="button"
-                  title="Show saved agent Id."
-                  onClick={() => void showAgentFromOps()}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="brand">Show</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Use agent Id and apply its saved setup to the visible controls."
-                  onClick={() => void useAgentFromOps()}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="chat">Use</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Save current setup as agent Id using Value as the system prompt."
-                  onClick={() => void saveAgentFromOps()}
-                  disabled={running || !opsId.trim() || !opsValue.trim()}
-                >
-                  <ButtonLabel icon="setup">Save</ButtonLabel>
-                </button>
+                {showAgentTargetActions ? (
+                  <>
+                    <button
+                      type="button"
+                      title="Show saved agent Id."
+                      onClick={() => void showAgentFromOps()}
+                      disabled={running}
+                    >
+                      <ButtonLabel icon="brand">Show</ButtonLabel>
+                    </button>
+                    <button
+                      type="button"
+                      title="Use agent Id and apply its saved setup to the visible controls."
+                      onClick={() => void useAgentFromOps()}
+                      disabled={running}
+                    >
+                      <ButtonLabel icon="chat">Use</ButtonLabel>
+                    </button>
+                  </>
+                ) : null}
+                {showAgentSaveAction ? (
+                  <button
+                    type="button"
+                    title="Save current setup as agent Id using Value as the system prompt."
+                    onClick={() => void saveAgentFromOps()}
+                    disabled={running || !opsId.trim() || !opsValue.trim()}
+                  >
+                    <ButtonLabel icon="setup">Save</ButtonLabel>
+                  </button>
+                ) : null}
               </div>
               {agentConfigs.length ? (
                 <div className="ingestion-review">

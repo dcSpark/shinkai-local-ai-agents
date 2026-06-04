@@ -19816,6 +19816,14 @@ export default function App() {
     activeSection === "chat"
       ? runStatusLabel
       : `${activeVisual.hint} / ${runStatusLabel}`;
+  const showRunStatePill = running || Boolean(lastRunId);
+  const showRunTelemetry =
+    showRunStatePill ||
+    tokensIn > 0 ||
+    tokensOut > 0 ||
+    costUsd > 0 ||
+    calls > 0 ||
+    elapsedMs > 0;
   const adapterDoctorCardTone = adapterDoctorReport
     ? adapterDoctorTone(adapterDoctorReport)
     : "neutral";
@@ -19970,46 +19978,50 @@ export default function App() {
               <AppIcon name="profile" />
               <span>{activeAgentLabel()}</span>
             </span>
-            <span
-              className={running ? "pill running" : "pill idle"}
-              title="Run state"
-            >
-              <AppIcon name="approval" />
-              <span>{running ? "Running" : "Idle"}</span>
-            </span>
+            {showRunStatePill ? (
+              <span
+                className={running ? "pill running" : "pill idle"}
+                title="Run state"
+              >
+                <AppIcon name="approval" />
+                <span>{running ? "Running" : "Idle"}</span>
+              </span>
+            ) : null}
             {rawToolOutput ? (
               <span className="pill" title="Tool output mode">
                 <AppIcon name="artifact" />
                 <span>Raw output</span>
               </span>
             ) : null}
-            <details className="status-disclosure">
-              <summary title="Show run telemetry">
-                <AppIcon name="trace" />
-                <span>Telemetry</span>
-              </summary>
-              <div className="status-disclosure-panel">
-                <span className="pill">
-                  <AppIcon name="context" />
-                  <span>Tokens {tokensIn}/{tokensOut}</span>
-                </span>
-                <span className="pill">
+            {showRunTelemetry ? (
+              <details className="status-disclosure">
+                <summary title="Show run telemetry">
                   <AppIcon name="trace" />
-                  <span>Cost ${costUsd.toFixed(6)}</span>
-                </span>
-                <span className="pill">
-                  <AppIcon name="control" />
-                  <span>Time {formatDuration(elapsedMs)}</span>
-                </span>
-                <span
-                  className={budgetPillClass}
-                  title={`Tool-call budget: ${remainingToolCalls} remaining of ${effectiveMaxToolCalls}`}
-                >
-                  <AppIcon name="tools" />
-                  <span>Tools {remainingToolCalls} left</span>
-                </span>
-              </div>
-            </details>
+                  <span>Telemetry</span>
+                </summary>
+                <div className="status-disclosure-panel">
+                  <span className="pill">
+                    <AppIcon name="context" />
+                    <span>Tokens {tokensIn}/{tokensOut}</span>
+                  </span>
+                  <span className="pill">
+                    <AppIcon name="trace" />
+                    <span>Cost ${costUsd.toFixed(6)}</span>
+                  </span>
+                  <span className="pill">
+                    <AppIcon name="control" />
+                    <span>Time {formatDuration(elapsedMs)}</span>
+                  </span>
+                  <span
+                    className={budgetPillClass}
+                    title={`Tool-call budget: ${remainingToolCalls} remaining of ${effectiveMaxToolCalls}`}
+                  >
+                    <AppIcon name="tools" />
+                    <span>Tools {remainingToolCalls} left</span>
+                  </span>
+                </div>
+              </details>
+            ) : null}
           </div>
         </header>
 

@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App topbar fresh-run status suppression | Done | `crates/agent-tauri/frontend/src/App.tsx` | The fresh Chat top bar now hides default Idle and zeroed Telemetry controls until a run exists or telemetry has data, keeping the active agent visible while preserving run state and metrics once they become meaningful. |
 | App topbar default-output suppression | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Chat top bar no longer shows the default interpreted-output mode as a persistent status pill; it only surfaces a Raw output pill when the user opts into raw tool results, preserving the routing control while reducing first-scan status noise. |
 | App context approval gate disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Chat Context panel now moves the default-on Approval gate toggle into the Approval settings disclosure while showing a warning note only when auto-approve is enabled, keeping the safety control available without foregrounding configuration on first use. |
 | App chat setup first-scan compaction | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | The Chat Agent setup panel now opens as provider/model status chips with configuration behind a Change setup disclosure, keeping model/provider editing and deeper model details available without leading first use with form fields. |

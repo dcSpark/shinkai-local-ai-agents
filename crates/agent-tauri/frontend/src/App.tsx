@@ -19930,6 +19930,22 @@ export default function App() {
   const showPromptTransferTargetActions = Boolean(opsId.trim());
   const showPromptTransferImportAction = Boolean(opsValue.trim());
   const showConversationTargetActions = Boolean(opsId.trim());
+  const showConversationCleanupControls =
+    Boolean(opsId.trim()) ||
+    conversationDocs.length > 0 ||
+    conversationTree.length > 0 ||
+    Boolean(expandedConversation) ||
+    Boolean(conversationDeletePlan) ||
+    Boolean(conversationRecoveryPlan);
+  const showConversationRangeCleanupAction =
+    Boolean(opsId.trim()) && Boolean(opsValue.trim());
+  const showConversationBranchCleanupActions = Boolean(opsId.trim());
+  const showConversationAgentCleanupActions =
+    Boolean(agentId.trim()) &&
+    (conversationDocs.length > 0 ||
+      conversationTree.length > 0 ||
+      Boolean(expandedConversation) ||
+      Boolean(conversationDeletePlan));
   const showProfileTargetActions = Boolean(opsId.trim());
   const runControlVisualSection: ActiveSection =
     activeSection === "approvals" ? "approvals" : "chat";
@@ -25112,97 +25128,109 @@ export default function App() {
                   No conversation tree loaded. List conversations to review branches.
                 </EmptyNote>
               )}
-              <details
-                className="context-more-controls"
-                style={sectionThemeStyle("conversations")}
-              >
-                <summary title="Show additional conversation settings">
-                  <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="setup" />
-                  </span>
-                  <span className="advanced-controls-copy">
-                    <strong>More settings</strong>
-                    <span>Preview and remove ranges, branches, or agent-owned conversations</span>
-                  </span>
-                </summary>
-                <div className="context-more-grid">
-                  <details
-                    className="advanced-controls"
-                    style={sectionThemeStyle("conversations")}
-                  >
-                    <summary>
-                      <span className="advanced-controls-icon" aria-hidden="true">
-                        <AppIcon name="approval" />
-                      </span>
-                      <span className="advanced-controls-copy">
-                        <strong>Conversation cleanup</strong>
-                        <span>Preview and remove ranges, branches, or agent-owned conversations</span>
-                      </span>
-                    </summary>
-                    <div className="button-grid">
-                      <button
-                        type="button"
-                        title='Delete a leaf conversation message range using Value like { "from": 2, "to": 4 }.'
-                        onClick={() => void deleteConversationRangeFromOps()}
-                        disabled={running || !opsId.trim() || !opsValue.trim()}
-                      >
-                        <ButtonLabel icon="control">Delete Range</ButtonLabel>
-                      </button>
-                      <button
-                        type="button"
-                        title="Preview which conversations would be deleted."
-                        onClick={() => void previewConversationDeleteFromOps(false)}
-                        disabled={running || !opsId.trim()}
-                      >
-                        <ButtonLabel icon="prompt">Plan Delete</ButtonLabel>
-                      </button>
-                      <button
-                        type="button"
-                        title="Preview recursive deletion including child branches."
-                        onClick={() => void previewConversationDeleteFromOps(true)}
-                        disabled={running || !opsId.trim()}
-                      >
-                        <ButtonLabel icon="conversation">Plan Recursive</ButtonLabel>
-                      </button>
-                      <button
-                        type="button"
-                        className="danger"
-                        title="Delete conversation Id if it has no child branches."
-                        onClick={() => void deleteConversationFromOps(false)}
-                        disabled={running || !opsId.trim()}
-                      >
-                        <ButtonLabel icon="approval">Delete</ButtonLabel>
-                      </button>
-                      <button
-                        type="button"
-                        className="danger"
-                        title="Delete conversation Id and all child branches."
-                        onClick={() => void deleteConversationFromOps(true)}
-                        disabled={running || !opsId.trim()}
-                      >
-                        <ButtonLabel icon="approval">Delete Recursive</ButtonLabel>
-                      </button>
-                      <button
-                        type="button"
-                        title="Preview deletion of all conversations owned by the active Agent id."
-                        onClick={() => void previewConversationDeleteAgent()}
-                        disabled={running || !agentId.trim()}
-                      >
-                        <ButtonLabel icon="profile">Plan Agent</ButtonLabel>
-                      </button>
-                      <button
-                        type="button"
-                        className="danger"
-                        title="Delete all conversations owned by the active Agent id."
-                        onClick={() => void deleteConversationsForAgent()}
-                        disabled={running || !agentId.trim()}
-                      >
-                        <ButtonLabel icon="profile">Delete Agent</ButtonLabel>
-                      </button>
-                    </div>
-                  </details>
-                </div>
-              </details>
+              {showConversationCleanupControls ? (
+                <details
+                  className="context-more-controls"
+                  style={sectionThemeStyle("conversations")}
+                >
+                  <summary title="Show additional conversation settings">
+                    <span className="advanced-controls-icon" aria-hidden="true">
+                      <AppIcon name="setup" />
+                    </span>
+                    <span className="advanced-controls-copy">
+                      <strong>More settings</strong>
+                      <span>Preview and remove ranges, branches, or agent-owned conversations</span>
+                    </span>
+                  </summary>
+                  <div className="context-more-grid">
+                    <details
+                      className="advanced-controls"
+                      style={sectionThemeStyle("conversations")}
+                    >
+                      <summary>
+                        <span className="advanced-controls-icon" aria-hidden="true">
+                          <AppIcon name="approval" />
+                        </span>
+                        <span className="advanced-controls-copy">
+                          <strong>Conversation cleanup</strong>
+                          <span>Preview and remove ranges, branches, or agent-owned conversations</span>
+                        </span>
+                      </summary>
+                      <div className="button-grid">
+                        {showConversationRangeCleanupAction ? (
+                          <button
+                            type="button"
+                            title='Delete a leaf conversation message range using Value like { "from": 2, "to": 4 }.'
+                            onClick={() => void deleteConversationRangeFromOps()}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="control">Delete Range</ButtonLabel>
+                          </button>
+                        ) : null}
+                        {showConversationBranchCleanupActions ? (
+                          <>
+                            <button
+                              type="button"
+                              title="Preview which conversations would be deleted."
+                              onClick={() => void previewConversationDeleteFromOps(false)}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="prompt">Plan Delete</ButtonLabel>
+                            </button>
+                            <button
+                              type="button"
+                              title="Preview recursive deletion including child branches."
+                              onClick={() => void previewConversationDeleteFromOps(true)}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="conversation">Plan Recursive</ButtonLabel>
+                            </button>
+                            <button
+                              type="button"
+                              className="danger"
+                              title="Delete conversation Id if it has no child branches."
+                              onClick={() => void deleteConversationFromOps(false)}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="approval">Delete</ButtonLabel>
+                            </button>
+                            <button
+                              type="button"
+                              className="danger"
+                              title="Delete conversation Id and all child branches."
+                              onClick={() => void deleteConversationFromOps(true)}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="approval">Delete Recursive</ButtonLabel>
+                            </button>
+                          </>
+                        ) : null}
+                        {showConversationAgentCleanupActions ? (
+                          <>
+                            <button
+                              type="button"
+                              title="Preview deletion of all conversations owned by the active Agent id."
+                              onClick={() => void previewConversationDeleteAgent()}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="profile">Plan Agent</ButtonLabel>
+                            </button>
+                            <button
+                              type="button"
+                              className="danger"
+                              title="Delete all conversations owned by the active Agent id."
+                              onClick={() => void deleteConversationsForAgent()}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="profile">Delete Agent</ButtonLabel>
+                            </button>
+                          </>
+                        ) : null}
+                      </div>
+                    </details>
+                  </div>
+                </details>
+              ) : null}
             </div>
             ) : null}
 

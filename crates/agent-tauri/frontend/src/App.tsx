@@ -19976,7 +19976,6 @@ export default function App() {
   const showModelCatalogControls =
     Boolean(modelDoctorReport) ||
     modelConfigs.length > 0 ||
-    modelProviderDescriptors.length > 0 ||
     provider !== "fake";
   const showModelTargetActions = Boolean(opsId.trim());
   const showModelSaveAction = provider !== "fake";

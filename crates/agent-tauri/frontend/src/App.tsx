@@ -22679,9 +22679,12 @@ export default function App() {
                     })}
                   </div>
                 ) : (
-                  <EmptyNote section="chat" icon="conversation">
-                    No visible conversation messages in this preview.
-                  </EmptyNote>
+                  <EmptyNote
+                    section="chat"
+                    icon="conversation"
+                    title="No visible messages"
+                    detail="This preview has no conversation messages to include."
+                  />
                 )}
                 <ContextPreviewPayload
                   meta={rawPayloadMeta(contextPreview.conversation)}
@@ -24739,9 +24742,12 @@ export default function App() {
                 ) : null}
               </div>
               {conversationDocs.length ? (
-                <EmptyNote section="conversations" icon="conversation">
-                  Loaded {conversationDocs.length} conversation records.
-                </EmptyNote>
+                <EmptyNote
+                  section="conversations"
+                  icon="conversation"
+                  title="Conversation records loaded"
+                  detail={`${conversationDocs.length} ready for branch review.`}
+                />
               ) : null}
               {conversationDeletePlan ? (
                 <div className="ingestion-review">
@@ -24799,11 +24805,16 @@ export default function App() {
                         }
                       />
                     </div>
-                    <EmptyNote section="conversations" icon="artifact">
-                      {conversationDeletePlan.linked_compactions.length} compactions,{" "}
-                      {conversationDeletePlan.linked_memories.length} memories,{" "}
-                      {conversationDeletePlan.linked_generated_artifacts.length} generated artifacts
-                    </EmptyNote>
+                    <EmptyNote
+                      section="conversations"
+                      icon="artifact"
+                      title="Linked side data"
+                      detail={[
+                        `${conversationDeletePlan.linked_compactions.length} compactions`,
+                        `${conversationDeletePlan.linked_memories.length} memories`,
+                        `${conversationDeletePlan.linked_generated_artifacts.length} generated artifacts`,
+                      ].join(", ")}
+                    />
                     <div className="conversation-detail-list">
                       {conversationDeletePlan.delete_ids.map((id) => (
                         <div className="conversation-detail-row warning" key={id}>
@@ -25248,9 +25259,12 @@ export default function App() {
                   </div>
                 </div>
               ) : (
-                <EmptyNote section="conversations" icon="conversation">
-                  No conversation tree loaded. List conversations to review branches.
-                </EmptyNote>
+                <EmptyNote
+                  section="conversations"
+                  icon="conversation"
+                  title="No conversation tree loaded"
+                  detail="List conversations to review branches."
+                />
               )}
               {showConversationCleanupControls ? (
                 <details
@@ -25750,13 +25764,16 @@ export default function App() {
                 ) : null}
               </div>
               {currentProfile || currentProfileError ? (
-                <EmptyNote section="profiles" icon="profile">
-                  {currentProfile
-                    ? `Active profile: ${
-                        currentProfile.name || currentProfile.id
-                      } (${currentProfile.id})`
-                    : `Active profile unavailable: ${currentProfileError}`}
-                </EmptyNote>
+                <EmptyNote
+                  section="profiles"
+                  icon="profile"
+                  title={currentProfile ? "Active profile" : "Profile unavailable"}
+                  detail={
+                    currentProfile
+                      ? `${currentProfile.name || currentProfile.id} (${currentProfile.id})`
+                      : currentProfileError
+                  }
+                />
               ) : null}
               <details
                 className="context-more-controls"
@@ -28771,11 +28788,16 @@ export default function App() {
                 ) : null}
               </div>
               {skillDocs.length ? (
-                <EmptyNote section="skills" icon="skill">
-                  Imported skills: {skillDocs.length};{" "}
-                  {skillDocs.filter((skill) => skill.quarantined).length} quarantined;{" "}
-                  {skillDocs.filter(hasHighRiskSkillFindings).length} blocked.
-                </EmptyNote>
+                <EmptyNote
+                  section="skills"
+                  icon="skill"
+                  title="Imported skills loaded"
+                  detail={[
+                    `${skillDocs.length} total`,
+                    `${skillDocs.filter((skill) => skill.quarantined).length} quarantined`,
+                    `${skillDocs.filter(hasHighRiskSkillFindings).length} blocked.`,
+                  ].join("; ")}
+                />
               ) : (
                 <EmptyNote
                   section="skills"
@@ -28874,13 +28896,20 @@ export default function App() {
                 ) : null}
               </div>
               {capabilityDoctorReport || capabilityDrafts.length ? (
-                <EmptyNote section="skills" icon="tools">
-                  Capability drafts:{" "}
-                  {capabilityDoctorReport?.draft_count ?? capabilityDrafts.length};{" "}
-                  {capabilityDoctorReport?.review_needed_count ??
-                    capabilityDrafts.filter((draft) => draft.status === "quarantined")
-                      .length} review needed.
-                </EmptyNote>
+                <EmptyNote
+                  section="skills"
+                  icon="tools"
+                  title="Capability drafts loaded"
+                  detail={[
+                    `${capabilityDoctorReport?.draft_count ?? capabilityDrafts.length} total`,
+                    `${
+                      capabilityDoctorReport?.review_needed_count ??
+                      capabilityDrafts.filter(
+                        (draft) => draft.status === "quarantined",
+                      ).length
+                    } review needed.`,
+                  ].join("; ")}
+                />
               ) : (
                 <EmptyNote
                   section="skills"

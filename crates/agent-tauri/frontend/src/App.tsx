@@ -19893,6 +19893,8 @@ export default function App() {
     modelConfigs.length > 0 ||
     modelProviderDescriptors.length > 0 ||
     provider !== "fake";
+  const showModelTargetActions = Boolean(opsId.trim());
+  const showModelSaveAction = provider !== "fake";
   const showIngestionArtifactActions =
     ingestionArtifacts.length > 0 ||
     includeIngestIds.length > 0 ||
@@ -27463,30 +27465,36 @@ export default function App() {
                 >
                   <ButtonLabel icon="trace">Doctor</ButtonLabel>
                 </button>
-                <button
-                  type="button"
-                  title="Show model Id and load it into the model controls."
-                  onClick={() => void showModelFromOps()}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="setup">Show</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Probe declared and live capabilities for model Id."
-                  onClick={() => void probeModelFromOps()}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="trace">Probe</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Save the current provider, model, API settings, metadata, and provider options."
-                  onClick={() => void saveCurrentModelFromControls()}
-                  disabled={running || provider === "fake"}
-                >
-                  <ButtonLabel icon="setup">Save</ButtonLabel>
-                </button>
+                {showModelTargetActions ? (
+                  <>
+                    <button
+                      type="button"
+                      title="Show model Id and load it into the model controls."
+                      onClick={() => void showModelFromOps()}
+                      disabled={running}
+                    >
+                      <ButtonLabel icon="setup">Show</ButtonLabel>
+                    </button>
+                    <button
+                      type="button"
+                      title="Probe declared and live capabilities for model Id."
+                      onClick={() => void probeModelFromOps()}
+                      disabled={running}
+                    >
+                      <ButtonLabel icon="trace">Probe</ButtonLabel>
+                    </button>
+                  </>
+                ) : null}
+                {showModelSaveAction ? (
+                  <button
+                    type="button"
+                    title="Save the current provider, model, API settings, metadata, and provider options."
+                    onClick={() => void saveCurrentModelFromControls()}
+                    disabled={running}
+                  >
+                    <ButtonLabel icon="setup">Save</ButtonLabel>
+                  </button>
+                ) : null}
               </div>
               {modelDoctorReport ? (
                 <div

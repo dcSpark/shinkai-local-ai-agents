@@ -20029,6 +20029,7 @@ export default function App() {
   const showProfileBundleImportAction = Boolean(opsValue.trim());
   const showSecretTargetActions = Boolean(opsId.trim());
   const showSecretWriteActions = Boolean(opsId.trim() && opsValue.trim());
+  const showToolCallByIdControls = Boolean(opsId.trim());
   const runControlVisualSection: ActiveSection =
     activeSection === "approvals" ? "approvals" : "chat";
   const pendingApprovalCount = approvals.filter(
@@ -32442,30 +32443,32 @@ export default function App() {
                   detail="List tools before staging a manual call."
                 />
               )}
-              <details
-                className="advanced-controls"
-                style={sectionThemeStyle("chat")}
-              >
-                <summary>
-                  <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="tools" />
-                  </span>
-                  <span className="advanced-controls-copy">
-                    <strong>Call by ID</strong>
-                    <span>Use Target id and Payload for a manual tool call</span>
-                  </span>
-                </summary>
-                <div className="button-grid">
-                  <button
-                    type="button"
-                    title="Call the staged Target id with Payload as JSON input."
-                    onClick={() => void callToolFromOps()}
-                    disabled={running || !opsId.trim()}
-                  >
-                    <ButtonLabel icon="tools">Call</ButtonLabel>
-                  </button>
-                </div>
-              </details>
+              {showToolCallByIdControls ? (
+                <details
+                  className="advanced-controls"
+                  style={sectionThemeStyle("chat")}
+                >
+                  <summary>
+                    <span className="advanced-controls-icon" aria-hidden="true">
+                      <AppIcon name="tools" />
+                    </span>
+                    <span className="advanced-controls-copy">
+                      <strong>Call by ID</strong>
+                      <span>Use Target id and Payload for a manual tool call</span>
+                    </span>
+                  </summary>
+                  <div className="button-grid">
+                    <button
+                      type="button"
+                      title="Call the staged Target id with Payload as JSON input."
+                      onClick={() => void callToolFromOps()}
+                      disabled={running}
+                    >
+                      <ButtonLabel icon="tools">Call</ButtonLabel>
+                    </button>
+                  </div>
+                </details>
+              ) : null}
             </div>
             ) : null}
 

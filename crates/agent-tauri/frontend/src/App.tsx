@@ -20001,7 +20001,7 @@ export default function App() {
     memoryBackends.length > 0 ||
     Boolean(memoryBackendProbe);
   const showMemoryCreateAction = Boolean(opsValue.trim());
-  const showPromptSaveAction = Boolean(opsId.trim() || opsValue.trim());
+  const showPromptSaveAction = Boolean(opsId.trim() && opsValue.trim());
   const showPromptTargetActions = Boolean(opsId.trim());
   const showPromptTransferControls = Boolean(opsId.trim() || opsValue.trim());
   const showPromptTransferTargetActions = Boolean(opsId.trim());
@@ -27277,7 +27277,7 @@ export default function App() {
                     type="button"
                     title="Save prompt Id with Value as the prompt body."
                     onClick={() => void savePromptFromOps()}
-                    disabled={running || !opsValue.trim() || !opsId.trim()}
+                    disabled={running}
                   >
                     <ButtonLabel icon="prompt">Save</ButtonLabel>
                   </button>

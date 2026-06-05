@@ -19999,6 +19999,7 @@ export default function App() {
     Boolean(memoryTopics.trim()) ||
     memoryBackends.length > 0 ||
     Boolean(memoryBackendProbe);
+  const showMemoryCreateAction = Boolean(opsValue.trim());
   const showPromptSaveAction = Boolean(opsId.trim() || opsValue.trim());
   const showPromptTargetActions = Boolean(opsId.trim());
   const showPromptTransferControls = Boolean(opsId.trim() || opsValue.trim());
@@ -26464,14 +26465,16 @@ export default function App() {
                 >
                   <ButtonLabel icon="profile">Access</ButtonLabel>
                 </button>
-                <button
-                  type="button"
-                  title="Create a memory from Value."
-                  onClick={() => void createMemoryFromOps()}
-                  disabled={running || !opsValue.trim()}
-                >
-                  <ButtonLabel icon="memory">Add</ButtonLabel>
-                </button>
+                {showMemoryCreateAction ? (
+                  <button
+                    type="button"
+                    title="Create a memory from Value."
+                    onClick={() => void createMemoryFromOps()}
+                    disabled={running}
+                  >
+                    <ButtonLabel icon="memory">Add</ButtonLabel>
+                  </button>
+                ) : null}
               </div>
               <details
                 className="context-more-controls"

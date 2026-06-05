@@ -20001,6 +20001,13 @@ export default function App() {
     memoryBackends.length > 0 ||
     Boolean(memoryBackendProbe);
   const showMemoryCreateAction = Boolean(opsValue.trim());
+  const showMemoryGenerateAction = Boolean(opsValue.trim());
+  const showMemoryGenerateRangeAction =
+    Boolean(expandedConversation) && Boolean(opsValue.trim());
+  const showMemoryClassifyAction = Boolean(opsId.trim());
+  const showMemoryEditAction = Boolean(opsId.trim() && opsValue.trim());
+  const showMemoryDeleteAction = Boolean(opsId.trim());
+  const showMemoryImportAction = Boolean(opsValue.trim());
   const showPromptSaveAction = Boolean(opsId.trim() && opsValue.trim());
   const showPromptTargetActions = Boolean(opsId.trim());
   const showPromptTransferControls = Boolean(opsId.trim() || opsValue.trim());
@@ -27151,24 +27158,26 @@ export default function App() {
                   />
                 </label>
                 <div className="button-grid">
-                  <button
-                    type="button"
-                    title="Generate memory candidates from Value."
-                    onClick={() => void generateMemoryFromOps()}
-                    disabled={running || !opsValue.trim()}
-                  >
-                    <ButtonLabel icon="prompt">Generate</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    title='Generate memory from the expanded conversation range in Value, like { "from": 2, "to": 4 }.'
-                    onClick={() => void generateConversationMemoryFromOps()}
-                    disabled={
-                      running || !expandedConversation || !opsValue.trim()
-                    }
-                  >
-                    <ButtonLabel icon="conversation">Generate Range</ButtonLabel>
-                  </button>
+                  {showMemoryGenerateAction ? (
+                    <button
+                      type="button"
+                      title="Generate memory candidates from Value."
+                      onClick={() => void generateMemoryFromOps()}
+                      disabled={running}
+                    >
+                      <ButtonLabel icon="prompt">Generate</ButtonLabel>
+                    </button>
+                  ) : null}
+                  {showMemoryGenerateRangeAction ? (
+                    <button
+                      type="button"
+                      title='Generate memory from the expanded conversation range in Value, like { "from": 2, "to": 4 }.'
+                      onClick={() => void generateConversationMemoryFromOps()}
+                      disabled={running}
+                    >
+                      <ButtonLabel icon="conversation">Generate Range</ButtonLabel>
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     title="Generate memory for conversation ranges not yet processed."
@@ -27177,14 +27186,16 @@ export default function App() {
                   >
                     <ButtonLabel icon="trace">Generate Pending</ButtonLabel>
                   </button>
-                  <button
-                    type="button"
-                    title="Classify memory Id with the selected model."
-                    onClick={() => void classifyMemoryFromOps()}
-                    disabled={running || !opsId.trim()}
-                  >
-                    <ButtonLabel icon="skill">Classify</ButtonLabel>
-                  </button>
+                  {showMemoryClassifyAction ? (
+                    <button
+                      type="button"
+                      title="Classify memory Id with the selected model."
+                      onClick={() => void classifyMemoryFromOps()}
+                      disabled={running}
+                    >
+                      <ButtonLabel icon="skill">Classify</ButtonLabel>
+                    </button>
+                  ) : null}
                 </div>
               </details>
               <details
@@ -27201,23 +27212,27 @@ export default function App() {
                   </span>
                 </summary>
                 <div className="button-grid">
-                  <button
-                    type="button"
-                    title="Edit memory Id with Value."
-                    onClick={() => void editMemoryFromOps()}
-                    disabled={running || !opsValue.trim() || !opsId.trim()}
-                  >
-                    <ButtonLabel icon="prompt">Edit Mem</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    className="danger"
-                    title="Delete memory Id."
-                    onClick={() => void deleteMemoryFromOps()}
-                    disabled={running || !opsId.trim()}
-                  >
-                    <ButtonLabel icon="approval">Delete Mem</ButtonLabel>
-                  </button>
+                  {showMemoryEditAction ? (
+                    <button
+                      type="button"
+                      title="Edit memory Id with Value."
+                      onClick={() => void editMemoryFromOps()}
+                      disabled={running}
+                    >
+                      <ButtonLabel icon="prompt">Edit Mem</ButtonLabel>
+                    </button>
+                  ) : null}
+                  {showMemoryDeleteAction ? (
+                    <button
+                      type="button"
+                      className="danger"
+                      title="Delete memory Id."
+                      onClick={() => void deleteMemoryFromOps()}
+                      disabled={running}
+                    >
+                      <ButtonLabel icon="approval">Delete Mem</ButtonLabel>
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className="danger"
@@ -27246,14 +27261,16 @@ export default function App() {
                   >
                     <ButtonLabel icon="artifact">Export Mem</ButtonLabel>
                   </button>
-                  <button
-                    type="button"
-                    title="Import memory records from the file path in Value, scoped by User memory and active Agent id."
-                    onClick={() => void importMemoryFromControls()}
-                    disabled={running || !opsValue.trim()}
-                  >
-                    <ButtonLabel icon="artifact">Import Mem</ButtonLabel>
-                  </button>
+                  {showMemoryImportAction ? (
+                    <button
+                      type="button"
+                      title="Import memory records from the file path in Value, scoped by User memory and active Agent id."
+                      onClick={() => void importMemoryFromControls()}
+                      disabled={running}
+                    >
+                      <ButtonLabel icon="artifact">Import Mem</ButtonLabel>
+                    </button>
+                  ) : null}
                 </div>
               </details>
                 </div>

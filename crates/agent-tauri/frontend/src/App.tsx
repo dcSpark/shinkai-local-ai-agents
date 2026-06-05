@@ -20065,6 +20065,11 @@ export default function App() {
     activeSection === "approvals" ||
     showRunControlActions ||
     showPostRunControlDisclosures;
+  const loadedTracePrompt = traceOriginalPrompt(traceEvents);
+  const showTraceToolsControls =
+    traceEvents.length > 0 ||
+    Boolean(traceCompareSummary) ||
+    Boolean(loadedTracePrompt);
   const trimmedApprovalController = approvalControllerAgent.trim();
   const approvalControllerValue = trimmedApprovalController || "manual";
   const showSessionOverview =
@@ -23827,78 +23832,80 @@ export default function App() {
               detail="Run or load a trace to inspect model, context, tools, cost, and approvals."
             />
           )}
-          <details
-            className="context-more-controls"
-            style={sectionThemeStyle("trace")}
-          >
-            <summary title="Show trace replay and cleanup tools">
-              <span className="advanced-controls-icon" aria-hidden="true">
-                <AppIcon name="trace" />
-              </span>
-              <span className="advanced-controls-copy">
-                <strong>Trace tools</strong>
-                <span>Recovery, replay, comparison, and cleanup</span>
-              </span>
-            </summary>
-            <div className="context-more-grid">
-              <details
-                className="advanced-controls"
-                style={sectionThemeStyle("trace")}
-              >
-                <summary>
-                  <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="trace" />
-                  </span>
-                  <span className="advanced-controls-copy">
-                    <strong>Replay and cleanup</strong>
-                    <span>Recover prompts, rerun traces, or clear loaded comparisons</span>
-                  </span>
-                </summary>
-                <div className="button-grid">
-                  <button
-                    type="button"
-                    title="Clear the loaded trace."
-                    onClick={clearLoadedTrace}
-                    disabled={running || !traceEvents.length}
-                  >
-                    <ButtonLabel icon="approval">Clear Trace</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    title="Clear the comparison trace."
-                    onClick={clearTraceComparison}
-                    disabled={running || !traceCompareSummary}
-                  >
-                    <ButtonLabel icon="approval">Clear Compare</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    title="Load the original prompt from the loaded trace into the composer."
-                    onClick={() => void loadTracePromptToComposer()}
-                    disabled={running || !traceOriginalPrompt(traceEvents)}
-                  >
-                    <ButtonLabel icon="prompt">Load Prompt</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    title="Run the original prompt from the loaded trace again."
-                    onClick={() => void replayTracePrompt()}
-                    disabled={running || !traceOriginalPrompt(traceEvents)}
-                  >
-                    <ButtonLabel icon="trace">Replay</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    title="Run the original prompt again, then compare the replay against this trace."
-                    onClick={() => void replayTracePromptWithComparison()}
-                    disabled={running || !traceOriginalPrompt(traceEvents)}
-                  >
-                    <ButtonLabel icon="trace">Replay Compare</ButtonLabel>
-                  </button>
-                </div>
-              </details>
-            </div>
-          </details>
+          {showTraceToolsControls ? (
+            <details
+              className="context-more-controls"
+              style={sectionThemeStyle("trace")}
+            >
+              <summary title="Show trace replay and cleanup tools">
+                <span className="advanced-controls-icon" aria-hidden="true">
+                  <AppIcon name="trace" />
+                </span>
+                <span className="advanced-controls-copy">
+                  <strong>Trace tools</strong>
+                  <span>Recovery, replay, comparison, and cleanup</span>
+                </span>
+              </summary>
+              <div className="context-more-grid">
+                <details
+                  className="advanced-controls"
+                  style={sectionThemeStyle("trace")}
+                >
+                  <summary>
+                    <span className="advanced-controls-icon" aria-hidden="true">
+                      <AppIcon name="trace" />
+                    </span>
+                    <span className="advanced-controls-copy">
+                      <strong>Replay and cleanup</strong>
+                      <span>Recover prompts, rerun traces, or clear loaded comparisons</span>
+                    </span>
+                  </summary>
+                  <div className="button-grid">
+                    <button
+                      type="button"
+                      title="Clear the loaded trace."
+                      onClick={clearLoadedTrace}
+                      disabled={running || !traceEvents.length}
+                    >
+                      <ButtonLabel icon="approval">Clear Trace</ButtonLabel>
+                    </button>
+                    <button
+                      type="button"
+                      title="Clear the comparison trace."
+                      onClick={clearTraceComparison}
+                      disabled={running || !traceCompareSummary}
+                    >
+                      <ButtonLabel icon="approval">Clear Compare</ButtonLabel>
+                    </button>
+                    <button
+                      type="button"
+                      title="Load the original prompt from the loaded trace into the composer."
+                      onClick={() => void loadTracePromptToComposer()}
+                      disabled={running || !loadedTracePrompt}
+                    >
+                      <ButtonLabel icon="prompt">Load Prompt</ButtonLabel>
+                    </button>
+                    <button
+                      type="button"
+                      title="Run the original prompt from the loaded trace again."
+                      onClick={() => void replayTracePrompt()}
+                      disabled={running || !loadedTracePrompt}
+                    >
+                      <ButtonLabel icon="trace">Replay</ButtonLabel>
+                    </button>
+                    <button
+                      type="button"
+                      title="Run the original prompt again, then compare the replay against this trace."
+                      onClick={() => void replayTracePromptWithComparison()}
+                      disabled={running || !loadedTracePrompt}
+                    >
+                      <ButtonLabel icon="trace">Replay Compare</ButtonLabel>
+                    </button>
+                  </div>
+                </details>
+              </div>
+            </details>
+          ) : null}
           {traceTree ? (
             <section className="trace-tree">
               <div className="trace-tree-head">

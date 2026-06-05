@@ -909,10 +909,10 @@ textarea:disabled {
 
 .workspace-session-overview {
   display: grid;
-  grid-template-columns: 4.8rem minmax(0, 1fr);
+  grid-template-columns: 5.2rem minmax(0, 1fr);
   gap: 0.65rem;
   align-items: stretch;
-  width: min(100%, 32rem);
+  width: min(100%, 36rem);
   margin: 0 auto 1rem;
   padding: 0.65rem;
   border: 1px solid #2a2d34;
@@ -937,7 +937,7 @@ textarea:disabled {
 }
 
 .workspace-session-overview .section-cue-node {
-  min-height: 4.3rem;
+  min-height: 5rem;
 }
 
 .starter-prompts {
@@ -1815,6 +1815,32 @@ textarea:disabled {
   font-size: 0.78rem;
   font-weight: 850;
   line-height: 1.15;
+}
+
+.section-cue-copy span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  color: #aab3bd;
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1.18;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.workspace-session-overview .section-cue-copy span {
+  position: static;
+  width: auto;
+  height: auto;
+  margin: 0;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
 }
 
 .panel {

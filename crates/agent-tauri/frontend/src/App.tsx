@@ -1071,6 +1071,7 @@ function SectionCueMap({ section }: { section: ActiveSection }) {
           </span>
           <span className="section-cue-copy">
             <strong>{cue.value}</strong>
+            <span>{cue.label}</span>
           </span>
         </li>
       ))}

@@ -29906,14 +29906,6 @@ export default function App() {
               <div className="button-grid">
                 <button
                   type="button"
-                  title="List available ingestion backends."
-                  onClick={() => void reviewIngestionBackends()}
-                  disabled={running}
-                >
-                  <ButtonLabel icon="setup">Backends</ButtonLabel>
-                </button>
-                <button
-                  type="button"
                   title="List ingestion artifacts."
                   onClick={() => void reviewIngestion()}
                   disabled={running}
@@ -30004,6 +29996,16 @@ export default function App() {
                         <span>Backend plus OCR and guardrail models</span>
                       </span>
                     </summary>
+                    <div className="button-grid">
+                      <button
+                        type="button"
+                        title="List available ingestion backends."
+                        onClick={() => void reviewIngestionBackends()}
+                        disabled={running}
+                      >
+                        <ButtonLabel icon="setup">Backends</ButtonLabel>
+                      </button>
+                    </div>
                     <label>
                       <FieldLabel icon="setup" section="ingest">
                         Backend

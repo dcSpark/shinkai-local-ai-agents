@@ -19946,9 +19946,9 @@ export default function App() {
     capabilityDrafts.length > 0 ||
     Boolean(capabilityDoctorReport) ||
     capabilityKind !== "skill";
-  const showCapabilityProposeAction = Boolean(opsId.trim() || opsValue.trim());
+  const showCapabilityProposeAction = Boolean(opsId.trim() && opsValue.trim());
   const showCapabilityTargetActions = Boolean(opsId.trim());
-  const showArtifactGenerateAction = Boolean(opsId.trim() || opsValue.trim());
+  const showArtifactGenerateAction = Boolean(opsId.trim() && opsValue.trim());
   const showGeneratedArtifactTargetActions = Boolean(opsId.trim());
   const showGeneratedArtifactMaintenanceControls = Boolean(opsId.trim());
   const showSkillTargetAction = Boolean(opsId.trim());
@@ -19961,7 +19961,7 @@ export default function App() {
   const showCompactionTransferTargetActions = Boolean(opsId.trim());
   const showCompactionTransferImportAction = Boolean(opsValue.trim());
   const showAgentTargetActions = Boolean(opsId.trim());
-  const showAgentSaveAction = Boolean(opsId.trim() || opsValue.trim());
+  const showAgentSaveAction = Boolean(opsId.trim() && opsValue.trim());
   const showAgentTransferControls = Boolean(opsId.trim() || opsValue.trim());
   const showAgentTransferTargetActions = Boolean(opsId.trim());
   const showAgentTransferImportAction = Boolean(opsValue.trim());
@@ -28836,7 +28836,7 @@ export default function App() {
                     type="button"
                     title="Create a quarantined draft from Id as name, Value as body, and optional Draft guidance."
                     onClick={() => void proposeCapabilityFromOps()}
-                    disabled={running || !opsId.trim() || !opsValue.trim()}
+                    disabled={running}
                   >
                     <ButtonLabel icon="tools">Propose</ButtonLabel>
                   </button>
@@ -30748,7 +30748,7 @@ export default function App() {
                     type="button"
                     title="Generate a document artifact using Id as the format and Value as content."
                     onClick={() => void generateArtifactFromOps()}
-                    disabled={running || !opsId.trim() || !opsValue.trim()}
+                    disabled={running}
                   >
                     <ButtonLabel icon="prompt">Generate</ButtonLabel>
                   </button>
@@ -31701,7 +31701,7 @@ export default function App() {
                     type="button"
                     title="Save current setup as agent Id using Value as the system prompt."
                     onClick={() => void saveAgentFromOps()}
-                    disabled={running || !opsId.trim() || !opsValue.trim()}
+                    disabled={running}
                   >
                     <ButtonLabel icon="setup">Save</ButtonLabel>
                   </button>

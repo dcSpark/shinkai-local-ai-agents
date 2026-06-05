@@ -19988,6 +19988,7 @@ export default function App() {
     ingestionArtifacts.length > 0 ||
     includeIngestIds.length > 0 ||
     Boolean(opsId.trim());
+  const showIngestionSourceActions = Boolean(opsValue.trim());
   const showIngestionGuardrailAction =
     showIngestionArtifactActions ||
     Boolean(ingestGuardrailModel.trim()) ||
@@ -29916,22 +29917,26 @@ export default function App() {
                 >
                   <ButtonLabel icon="ingest">List</ButtonLabel>
                 </button>
-                <button
-                  type="button"
-                  title="Check which ingestion backends fit the file path in Value."
-                  onClick={() => void probeIngestSourceFromOps()}
-                  disabled={running || !opsValue.trim()}
-                >
-                  <ButtonLabel icon="trace">Probe</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Ingest the file path in Value using the selected backend."
-                  onClick={() => void ingestPathFromOps()}
-                  disabled={running || !opsValue.trim()}
-                >
-                  <ButtonLabel icon="ingest">Ingest</ButtonLabel>
-                </button>
+                {showIngestionSourceActions ? (
+                  <>
+                    <button
+                      type="button"
+                      title="Check which ingestion backends fit the file path in Value."
+                      onClick={() => void probeIngestSourceFromOps()}
+                      disabled={running}
+                    >
+                      <ButtonLabel icon="trace">Probe</ButtonLabel>
+                    </button>
+                    <button
+                      type="button"
+                      title="Ingest the file path in Value using the selected backend."
+                      onClick={() => void ingestPathFromOps()}
+                      disabled={running}
+                    >
+                      <ButtonLabel icon="ingest">Ingest</ButtonLabel>
+                    </button>
+                  </>
+                ) : null}
                 {showIngestionArtifactActions ? (
                   <>
                     <button

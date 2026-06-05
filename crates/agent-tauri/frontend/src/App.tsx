@@ -20070,6 +20070,11 @@ export default function App() {
     traceEvents.length > 0 ||
     Boolean(traceCompareSummary) ||
     Boolean(loadedTracePrompt);
+  const showTraceLoadAction = Boolean(lastRunId || opsId.trim());
+  const showTraceCompareTargetField =
+    Boolean(traceSummary) || Boolean(traceCompareRunId.trim());
+  const showTraceCompareAction =
+    Boolean(traceSummary) && Boolean(traceCompareRunId.trim() || opsId.trim());
   const trimmedApprovalController = approvalControllerAgent.trim();
   const approvalControllerValue = trimmedApprovalController || "manual";
   const showSessionOverview =
@@ -23510,38 +23515,40 @@ export default function App() {
             >
               <ButtonLabel icon="trace">Runs</ButtonLabel>
             </button>
-            <button
-              type="button"
-              title="Load the run id in the Id field, or the last run when Id is blank."
-              onClick={() => void loadTraceFromOps()}
-              disabled={running || (!opsId.trim() && !lastRunId)}
-            >
-              <ButtonLabel icon="trace">Load</ButtonLabel>
-            </button>
-            <button
-              type="button"
-              title="Load the comparison run id as a secondary trace."
-              onClick={() => void loadTraceComparisonFromOps()}
-              disabled={
-                running ||
-                !traceSummary ||
-                (!traceCompareRunId.trim() && !opsId.trim())
-              }
-            >
-              <ButtonLabel icon="trace">Compare</ButtonLabel>
-            </button>
+            {showTraceLoadAction ? (
+              <button
+                type="button"
+                title="Load the run id in the Id field, or the last run when Id is blank."
+                onClick={() => void loadTraceFromOps()}
+                disabled={running}
+              >
+                <ButtonLabel icon="trace">Load</ButtonLabel>
+              </button>
+            ) : null}
+            {showTraceCompareAction ? (
+              <button
+                type="button"
+                title="Load the comparison run id as a secondary trace."
+                onClick={() => void loadTraceComparisonFromOps()}
+                disabled={running}
+              >
+                <ButtonLabel icon="trace">Compare</ButtonLabel>
+              </button>
+            ) : null}
           </div>
-          <label>
-            <FieldLabel icon="trace" section="trace">
-              Compare run
-            </FieldLabel>
-            <input
-              aria-label="Compare run id"
-              value={traceCompareRunId}
-              onChange={(event) => setTraceCompareRunId(event.target.value)}
-              placeholder="run id or last"
-            />
-          </label>
+          {showTraceCompareTargetField ? (
+            <label>
+              <FieldLabel icon="trace" section="trace">
+                Compare run
+              </FieldLabel>
+              <input
+                aria-label="Compare run id"
+                value={traceCompareRunId}
+                onChange={(event) => setTraceCompareRunId(event.target.value)}
+                placeholder="run id or last"
+              />
+            </label>
+          ) : null}
           {traceRuns.length ? (
             <section className="trace-tree">
               <div className="trace-section-head">

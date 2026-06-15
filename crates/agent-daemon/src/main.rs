@@ -7080,6 +7080,8 @@ struct DaemonRuntimeOptions {
     temperature: Option<f64>,
     max_tool_calls: Option<u32>,
     max_tokens_before_compaction: Option<u32>,
+    #[serde(default)]
+    clear_max_tokens_before_compaction: bool,
     max_compaction_output_tokens: Option<u32>,
     compaction_guidance: Option<String>,
     #[serde(default)]
@@ -7925,6 +7927,9 @@ fn build_agent(options: &DaemonRuntimeOptions) -> AgentConfig {
     if let Some(max_tool_calls) = options.max_tool_calls {
         agent.tool_policy.max_calls = max_tool_calls;
     }
+    if options.clear_max_tokens_before_compaction {
+        agent.context_policy.compaction.max_tokens_before_compaction = None;
+    }
     if let Some(max_tokens_before_compaction) = options.max_tokens_before_compaction {
         agent.context_policy.compaction.max_tokens_before_compaction =
             Some(max_tokens_before_compaction);
@@ -8507,6 +8512,46 @@ mod tests {
             agent.memory_model.as_ref().map(|model| model.0.as_str()),
             Some("memory-classifier")
         );
+    }
+
+    #[test]
+    fn build_agent_can_clear_conversation_compaction_threshold() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("clear-compaction");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+        }
+
+        let store = ConversationStore::from_env();
+        let conversation = store
+            .create(Some("Compaction policy".into()), Some("fake-agent".into()))
+            .unwrap();
+        let policy = ConversationPolicy {
+            max_tokens_before_compaction: Some(128),
+            ..ConversationPolicy::default()
+        };
+        store.set_policy(&conversation.id, policy).unwrap();
+        let inherited = build_agent(&DaemonRuntimeOptions {
+            conversation_id: Some(conversation.id.clone()),
+            ..DaemonRuntimeOptions::default()
+        })
+        .context_policy
+        .compaction
+        .max_tokens_before_compaction;
+        let cleared = build_agent(&DaemonRuntimeOptions {
+            conversation_id: Some(conversation.id),
+            clear_max_tokens_before_compaction: true,
+            ..DaemonRuntimeOptions::default()
+        })
+        .context_policy
+        .compaction
+        .max_tokens_before_compaction;
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+
+        assert_eq!(inherited, Some(128));
+        assert_eq!(cleared, None);
     }
 
     #[test]

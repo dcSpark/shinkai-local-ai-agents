@@ -833,6 +833,35 @@ textarea:disabled {
   background: #15171b;
 }
 
+button.session-overview-card {
+  width: 100%;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  appearance: none;
+}
+
+.session-overview-action {
+  cursor: pointer;
+}
+
+.session-overview-action:hover:not(:disabled),
+.session-overview-action:focus-visible {
+  border-color: var(--section-accent);
+  background: var(--section-surface);
+}
+
+.session-overview-action:hover:not(:disabled) .session-overview-icon,
+.session-overview-action:focus-visible .session-overview-icon {
+  border-color: var(--section-accent);
+  color: var(--section-accent);
+}
+
+button.session-overview-card:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
 .session-overview-icon {
   display: inline-grid;
   width: 1.8rem;
@@ -1956,6 +1985,10 @@ textarea:disabled {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.segmented-control.four {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .segmented-control button {
   min-width: 0;
   min-height: 2.2rem;
@@ -2271,6 +2304,10 @@ textarea:disabled {
 .context-disclosure-grid > .advanced-controls[open],
 .context-more-grid > .advanced-controls[open],
 .context-disclosure-grid > .included-list {
+  grid-column: 1 / -1;
+}
+
+.context-more-grid > .context-more-grid-row {
   grid-column: 1 / -1;
 }
 

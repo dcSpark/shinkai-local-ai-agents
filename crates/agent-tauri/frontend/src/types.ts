@@ -265,6 +265,32 @@ export type ModelDoctorReport = {
   errors: string[];
 };
 
+export type ModelLiveCapabilityProbe = {
+  attempted: boolean;
+  status: string;
+  source?: string | null;
+  fallback_source?: string | null;
+  model_found?: boolean | null;
+  reported_modalities?: string[];
+  reported_capabilities?: string[];
+  reported_tool_support?: boolean | null;
+  reported_limits?: Record<string, number>;
+  reported_pricing?: Record<string, string>;
+  message?: string | null;
+};
+
+export type ModelCapabilityProbe = {
+  model_id: string;
+  saved_model: boolean;
+  provider: string;
+  declared_modalities: string[];
+  provider_modalities: string[];
+  declared_limits?: Record<string, number>;
+  declared_pricing?: Record<string, string>;
+  tool_support?: boolean | null;
+  live_probe: ModelLiveCapabilityProbe;
+};
+
 export type ModelMetadataCatalogEntry = {
   provider: string;
   model_id: string;
@@ -625,6 +651,7 @@ export type RunOptions = {
   output_cost_per_million: number | null;
   max_tool_calls: number | null;
   max_tokens_before_compaction: number | null;
+  clear_max_tokens_before_compaction: boolean;
   max_compaction_output_tokens: number | null;
   compaction_guidance: string | null;
   allowed_tools: string[];
@@ -769,6 +796,13 @@ export type MemoryGeneratePendingResult = {
   }>;
   target: MemoryTarget;
   topics: string[];
+};
+
+export type MemoryExportResult = {
+  path: string;
+  user: boolean;
+  agent_id: string | null;
+  records: MemoryRecord[];
 };
 
 export type MemoryBackendDescriptor = {
@@ -1104,7 +1138,7 @@ export type CapabilityReviewResult =
       draft: CapabilityDraft;
       promoted_skill?: SkillDoc;
       quarantined_skill?: SkillDoc;
-      promoted_agent?: unknown;
+      promoted_agent?: AgentConfigFile;
       promoted_tool?: AdapterPackage;
       quarantined_tool?: AdapterPackage;
     };

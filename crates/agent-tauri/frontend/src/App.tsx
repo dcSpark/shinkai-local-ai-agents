@@ -41,8 +41,10 @@ import type {
   MemoryBackendDescriptor,
   MemoryBackendProbeReport,
   MemoryClassifyResult,
+  MemoryExportResult,
   MemoryGeneratePendingResult,
   MemoryRecord,
+  ModelCapabilityProbe,
   ModelDoctorReport,
   ModelMetadataCatalog,
   ModelVisionProbe,
@@ -121,6 +123,28 @@ type IconName =
 type AgentMode = "answer" | "action" | "workflow" | "custom";
 type AgentConfigEntry = AgentConfigFile | AgentSummary;
 type AgentDeleteResult = { id?: string; deleted?: boolean };
+type ClawHubResult = {
+  action: "search" | "inspect" | "pin";
+  catalog: string;
+  id?: string;
+  query?: string;
+  payload: unknown;
+};
+type DirectToolResult = {
+  kind: "shell" | "tool";
+  name: string;
+  payload: unknown;
+};
+type ApprovalAssessmentResultRecord = {
+  approvalId: string;
+  runId: string;
+  payload: ApprovalAssessResult;
+};
+type ApprovalExecutionResultRecord = {
+  approvalId: string;
+  runId: string;
+  payload: unknown;
+};
 type IngestModelOptions = {
   backend?: string;
   visionModel?: string | null;
@@ -173,11 +197,23 @@ interface SectionCue {
   tone?: ContextReviewCard["tone"];
 }
 
+interface TaskInputCopy {
+  title: string;
+  detail: string;
+  payloadLabel: string;
+  targetLabel: string;
+  payloadPlaceholder: string;
+  targetPlaceholder: string;
+  payloadSummary: string;
+  targetSummary: string;
+}
+
 interface StarterPrompt {
   title: string;
   description: string;
   prompt: string;
   icon: IconName;
+  mode?: "answer" | "workflow" | "router";
   tone?: ContextReviewCard["tone"];
 }
 
@@ -281,7 +317,7 @@ const SECTION_VISUALS: Record<ActiveSection, SectionVisual> = {
   },
   ingest: {
     label: "Ingest",
-    hint: "Probe files before context",
+    hint: "Check files before context",
     icon: "ingest",
     secondaryIcon: "artifact",
     tertiaryIcon: "approval",
@@ -339,7 +375,7 @@ const RAIL_HINTS: Record<ActiveSection, string> = {
   memory: "Opt-in",
   skills: "Preview",
   prompts: "Tasks",
-  ingest: "Probe files",
+  ingest: "Check files",
   artifacts: "Outputs",
   adapters: "Review first",
   approvals: "Decisions",
@@ -355,7 +391,7 @@ const RAIL_ARIA_LABELS: Record<ActiveSection, string> = {
   prompts: "Saved prompts",
   ingest: "Ingestion artifacts",
   artifacts: "Generated artifacts",
-  adapters: "Adapter manifests",
+  adapters: "Adapter integrations",
   approvals: "Approvals",
 };
 
@@ -367,7 +403,7 @@ const COMPOSER_PLACEHOLDERS: Record<ActiveSection, string> = {
   memory: "Describe a task, or review memory",
   skills: "Describe a task, or preview skills",
   prompts: "Draft a task, or reuse prompts",
-  ingest: "Describe a task, or probe files",
+  ingest: "Describe a task, or check files",
   artifacts: "Describe an output, or inspect artifacts",
   adapters: "Describe a task, or review integrations",
   approvals: "Describe a task, or review decisions",
@@ -382,17 +418,17 @@ const SECTION_CUES: Record<ActiveSection, SectionCue[]> = {
   trace: [
     { value: "Load", label: "run history", icon: "trace", tone: "ok" },
     { value: "Compare", label: "cost/output", icon: "context" },
-    { value: "Replay", label: "or cleanup", icon: "control", tone: "warning" },
+    { value: "Replay", label: "manage", icon: "control", tone: "warning" },
   ],
   conversations: [
     { value: "Tree", label: "branches", icon: "conversation", tone: "ok" },
     { value: "Recover", label: "context", icon: "context" },
-    { value: "Cleanup", label: "branches", icon: "approval", tone: "warning" },
+    { value: "Manage", label: "branches", icon: "approval", tone: "warning" },
   ],
   profiles: [
     { value: "Current", label: "active profile", icon: "profile", tone: "ok" },
     { value: "List", label: "profiles", icon: "profile" },
-    { value: "Admin", label: "grants", icon: "approval", tone: "warning" },
+    { value: "Access", label: "grants", icon: "approval", tone: "warning" },
   ],
   memory: [
     { value: "Off", label: "by default", icon: "approval", tone: "ok" },
@@ -407,21 +443,21 @@ const SECTION_CUES: Record<ActiveSection, SectionCue[]> = {
   prompts: [
     { value: "Use", label: "saved tasks", icon: "prompt", tone: "ok" },
     { value: "Save", label: "from value", icon: "prompt" },
-    { value: "Models", label: "imports", icon: "setup", tone: "warning" },
+    { value: "Models", label: "check", icon: "setup", tone: "warning" },
   ],
   ingest: [
-    { value: "Probe", label: "source fit", icon: "trace", tone: "ok" },
+    { value: "Check", label: "source fit", icon: "trace", tone: "ok" },
     { value: "Ingest", label: "explicit files", icon: "ingest" },
-    { value: "Guard", label: "OCR/policy", icon: "approval", tone: "warning" },
+    { value: "Guard", label: "safety", icon: "approval", tone: "warning" },
   ],
   artifacts: [
     { value: "Generate", label: "docs/data", icon: "prompt", tone: "ok" },
     { value: "Preview", label: "before open", icon: "context" },
-    { value: "Export", label: "or delete", icon: "approval", tone: "warning" },
+    { value: "Export", label: "manage", icon: "approval", tone: "warning" },
   ],
   adapters: [
     { value: "Review", label: "scan first", icon: "trace", tone: "warning" },
-    { value: "Install", label: "quarantined", icon: "skill" },
+    { value: "Add", label: "after review", icon: "skill" },
     { value: "Storage", label: "bridges", icon: "approval", tone: "warning" },
   ],
   approvals: [
@@ -434,27 +470,39 @@ const SECTION_CUES: Record<ActiveSection, SectionCue[]> = {
 const CHAT_STARTER_PROMPTS: StarterPrompt[] = [
   {
     title: "Plan workflow",
-    description: "Steps + tools.",
+    description: "Plan the work.",
     prompt:
-      "Plan a safe multi-step workflow for: [task]. List the tools you would use before taking action.",
+      "Plan a safe multi-step workflow for the task I describe next. If I have not described the task yet, ask me for it before taking action.",
     icon: "tools",
+    mode: "workflow",
     tone: "ok",
   },
   {
     title: "Inspect context",
     description: "Missing inputs.",
     prompt:
-      "Review the available context for: [task]. Point out missing inputs before answering.",
+      "Review the available context for the task I describe next. If I have not described the task yet, ask me for it and point out any missing inputs before answering.",
     icon: "context",
+    mode: "answer",
   },
   {
     title: "Route action",
-    description: "One tool, one result.",
+    description: "One action.",
     prompt:
-      "Use at most one action for: [task]. Return the raw result if interpretation is not needed.",
+      "Use at most one action for the task I describe next. If I have not described the task yet, ask me for it before choosing a tool.",
     icon: "control",
+    mode: "router",
     tone: "warning",
   },
+];
+
+const SLASH_STARTER_COMMANDS = [
+  "/help",
+  "/preview",
+  "/tools",
+  "/settings",
+  "/answer",
+  "/action",
 ];
 
 function sectionVisual(section: ActiveSection) {
@@ -483,7 +531,7 @@ function featureVisualMode(section: ActiveSection) {
 }
 
 function composerPlaceholder(section: ActiveSection, isRunning: boolean) {
-  if (isRunning) return "Type /guide to steer this run";
+  if (isRunning) return "Guide the current run";
   return COMPOSER_PLACEHOLDERS[section];
 }
 
@@ -1013,7 +1061,7 @@ const ORCHESTRATION_VISUAL_NODES: Array<{
 }> = [
   { key: "prompt", label: "Prompt", icon: "prompt" },
   { key: "context", label: "Context", icon: "context" },
-  { key: "tools", label: "Tools", icon: "tools" },
+  { key: "tools", label: "Actions", icon: "tools" },
   { key: "approval", label: "Gate", icon: "approval" },
   { key: "output", label: "Output", icon: "artifact" },
 ];
@@ -1023,7 +1071,7 @@ function AgentOrchestrationVisual() {
     <div
       className="orchestration-visual"
       style={sectionThemeStyle("chat")}
-      aria-label="Prompt, context, tools, approval gate, and output flow"
+      aria-label="Prompt, context, actions, approval gate, and output flow"
       role="img"
     >
       <span className="orchestration-path path-context" aria-hidden="true" />
@@ -1407,6 +1455,20 @@ function bundleTimestampLabel(manifest: BundleManifest) {
   });
 }
 
+function bundlePathLabel(path: string) {
+  return path.split(/[\\/]/).filter(Boolean).pop() || path;
+}
+
+function bundleEventLabel(
+  action: string,
+  path: string,
+  manifest: BundleManifest,
+) {
+  return `${action}: ${bundlePathLabel(path)} (${manifest.profile}, schema ${
+    manifest.schema_version
+  }, ${bundleReminderCount(manifest)} credential reminder(s)).`;
+}
+
 function adapterDoctorTone(report: AdapterDoctorReport): ContextReviewCard["tone"] {
   if (report.status === "error" || report.high_risk_finding_count > 0) {
     return "danger";
@@ -1450,6 +1512,78 @@ function modelDoctorUnknownProviderCount(report: ModelDoctorReport) {
 
 function modelDoctorMissingMetadataCount(report: ModelDoctorReport) {
   return report.saved_models.filter((model) => !model.metadata_present).length;
+}
+
+function modelCapabilityProbeTone(
+  probe: ModelCapabilityProbe,
+): ContextReviewCard["tone"] {
+  const status = probe.live_probe.status.toLowerCase();
+  if (
+    status.includes("error") ||
+    status.includes("fail") ||
+    status.includes("missing")
+  ) {
+    return "danger";
+  }
+  if (
+    status.includes("not_configured") ||
+    status.includes("not configured") ||
+    status.includes("unreachable") ||
+    probe.live_probe.model_found === false
+  ) {
+    return "warning";
+  }
+  return "ok";
+}
+
+function modelCapabilityReportedModalities(probe: ModelCapabilityProbe) {
+  return probe.live_probe.reported_modalities ?? [];
+}
+
+function modelCapabilityReportedCapabilities(probe: ModelCapabilityProbe) {
+  return probe.live_probe.reported_capabilities ?? [];
+}
+
+function modelCapabilityToolSupportLabel(probe: ModelCapabilityProbe) {
+  const support =
+    probe.live_probe.reported_tool_support ?? probe.tool_support ?? null;
+  if (support === null) return "unknown";
+  return support ? "yes" : "no";
+}
+
+function modelCapabilityProbeLabel(probe: ModelCapabilityProbe) {
+  const live = probe.live_probe;
+  const reportedModalities = modelCapabilityReportedModalities(probe);
+  const reportedCapabilities = modelCapabilityReportedCapabilities(probe);
+  const found =
+    live.model_found == null ? "" : `, found ${live.model_found ? "yes" : "no"}`;
+  return `${probe.model_id} (${probe.provider}) ${live.status}${found}, declared ${
+    probe.declared_modalities.length
+  } modality(s), reported ${reportedModalities.length} modality(s), ${
+    reportedCapabilities.length
+  } capability hint(s)`;
+}
+
+function deleteResultLabel(value: unknown) {
+  if (typeof value === "boolean") {
+    return value ? "deleted" : "not found";
+  }
+  if (value && typeof value === "object" && "deleted" in value) {
+    const deleted = (value as { deleted?: unknown }).deleted;
+    if (typeof deleted === "boolean") {
+      return deleted ? "deleted" : "not found";
+    }
+  }
+  return "completed";
+}
+
+function deleteResultEventLabel(subject: string, id: string, value: unknown) {
+  const result = deleteResultLabel(value);
+  if (result === "deleted") return `${subject} deleted: ${id}.`;
+  if (result === "not found") {
+    return `${subject} delete completed: ${id} was not found.`;
+  }
+  return `${subject} delete completed: ${id}.`;
 }
 
 function secretRecordFromResult(value: JsonValue): SecretRecord | null {
@@ -1643,6 +1777,13 @@ function BundleStatusCard({
           </div>
         ) : null}
       </div>
+      <ContextPreviewPayload
+        title="Bundle Manifest JSON"
+        meta={rawPayloadMeta(status.manifest)}
+        icon="artifact"
+      >
+        <pre>{JSON.stringify(status.manifest, null, 2)}</pre>
+      </ContextPreviewPayload>
     </div>
   );
 }
@@ -1673,7 +1814,7 @@ function SecretResultCard({ status }: { status: JsonValue }) {
         />
         <VisualMetric
           icon="profile"
-          label="backend"
+          label="storage"
           value={record?.backend ?? "metadata"}
           section="profiles"
           tone={record ? "ok" : "neutral"}
@@ -1700,7 +1841,7 @@ function SecretResultCard({ status }: { status: JsonValue }) {
               <AppIcon name="profile" />
             </span>
             <div className="secret-result-detail-copy">
-              <strong>Secret id</strong>
+              <strong>Secret record</strong>
               <span>{record.id}</span>
             </div>
           </div>
@@ -1709,7 +1850,7 @@ function SecretResultCard({ status }: { status: JsonValue }) {
               <AppIcon name="approval" />
             </span>
             <div className="secret-result-detail-copy">
-              <strong>Value fingerprint</strong>
+              <strong>Payload fingerprint</strong>
               <span title={record.value_fingerprint}>
                 {record.value_fingerprint}
               </span>
@@ -1756,7 +1897,7 @@ function SecretResultCard({ status }: { status: JsonValue }) {
               <AppIcon name="profile" />
             </span>
             <div className="secret-result-detail-copy">
-              <strong>Secret id</strong>
+              <strong>Secret record</strong>
               <span>{deleted.id}</span>
             </div>
           </div>
@@ -1774,9 +1915,9 @@ function SecretResultCard({ status }: { status: JsonValue }) {
               <AppIcon name="approval" />
             </span>
             <div className="secret-result-detail-copy">
-              <strong>Metadata state</strong>
+              <strong>Record state</strong>
               <span>
-                {deleted.deleted ? "removed from metadata" : "was not removed"}
+                {deleted.deleted ? "removed from secret records" : "was not removed"}
               </span>
             </div>
           </div>
@@ -1806,7 +1947,7 @@ function SecretResultCard({ status }: { status: JsonValue }) {
             <AppIcon name="context" />
           </span>
           <span className="structured-raw-copy">
-            <strong>Raw JSON</strong>
+            <strong>Secret JSON</strong>
             <span>{structuredRawJsonMeta(status)}</span>
           </span>
         </summary>
@@ -1875,7 +2016,7 @@ function CompactionTransferCard({ status }: { status: CompactionTransferStatus }
             <AppIcon name="artifact" />
           </span>
           <div className="compaction-transfer-detail-copy">
-            <strong>Transfer path</strong>
+            <strong>File path</strong>
             <span title={status.path}>{status.path}</span>
           </div>
         </div>
@@ -2013,6 +2154,10 @@ export default function App() {
   const [modelProviderDescriptors, setModelProviderDescriptors] = useState<
     ModelProviderDescriptor[]
   >([]);
+  const [modelProviderCatalogResult, setModelProviderCatalogResult] =
+    useState<ModelProviderCatalog | null | undefined>(undefined);
+  const [modelMetadataCatalogResult, setModelMetadataCatalogResult] =
+    useState<ModelMetadataCatalog | null | undefined>(undefined);
   const [providerTopP, setProviderTopP] = useState("");
   const [providerTopK, setProviderTopK] = useState("");
   const [providerReasoningEffort, setProviderReasoningEffort] = useState("");
@@ -2030,6 +2175,8 @@ export default function App() {
   const [maxToolCalls, setMaxToolCalls] = useState("");
   const [maxTokensBeforeCompaction, setMaxTokensBeforeCompaction] =
     useState("");
+  const [clearMaxTokensBeforeCompaction, setClearMaxTokensBeforeCompaction] =
+    useState(false);
   const [maxCompactionOutputTokens, setMaxCompactionOutputTokens] =
     useState("");
   const [compactionGuidance, setCompactionGuidance] = useState("");
@@ -2091,6 +2238,7 @@ export default function App() {
   const [contextCopyStatus, setContextCopyStatus] = useState("");
   const [traceEvents, setTraceEvents] = useState<RunEvent[]>([]);
   const [traceRuns, setTraceRuns] = useState<TraceRunRecord[]>([]);
+  const [traceRunsListed, setTraceRunsListed] = useState(false);
   const [traceSummary, setTraceSummary] = useState<TraceSummary | null>(null);
   const [traceTree, setTraceTree] = useState<TraceTreeNode | null>(null);
   const [collapsedTraceTreeRuns, setCollapsedTraceTreeRuns] = useState<string[]>(
@@ -2101,6 +2249,12 @@ export default function App() {
   const [traceCompareTree, setTraceCompareTree] =
     useState<TraceTreeNode | null>(null);
   const [traceCompareRunId, setTraceCompareRunId] = useState("");
+  const [batchListResult, setBatchListResult] = useState<unknown | null>(null);
+  const [batchDetailResult, setBatchDetailResult] = useState<unknown | null>(null);
+  const [runtimeSettingsResult, setRuntimeSettingsResult] =
+    useState<unknown | null>(null);
+  const [directToolResult, setDirectToolResult] =
+    useState<DirectToolResult | null>(null);
   const [hookPolicy, setHookPolicy] = useState<HookPolicyRecord | null>(null);
   const [hookCatalog, setHookCatalog] = useState<HookCatalogRecord[]>([]);
   const [visibleTools, setVisibleTools] = useState<ToolView[] | null>(null);
@@ -2110,6 +2264,8 @@ export default function App() {
   const [bridgeStatus, setBridgeStatus] = useState<BridgeStatusResponse | null>(
     null,
   );
+  const [bridgeDeliveryListResult, setBridgeDeliveryListResult] =
+    useState<BridgeDeliveryListResponse | null>(null);
   const [bridgeDeliveries, setBridgeDeliveries] = useState<BridgeDeliveryRecord[]>(
     [],
   );
@@ -2119,6 +2275,7 @@ export default function App() {
   const [compactionRecords, setCompactionRecords] = useState<CompactionRecord[]>(
     [],
   );
+  const [compactionLibraryListed, setCompactionLibraryListed] = useState(false);
   const [compactionTransferStatus, setCompactionTransferStatus] =
     useState<CompactionTransferStatus | null>(null);
   const [postRunCompactionPrompt, setPostRunCompactionPrompt] =
@@ -2128,12 +2285,16 @@ export default function App() {
   >([]);
   const [ingestionSourceProbe, setIngestionSourceProbe] =
     useState<IngestionSourceProbeReport | null>(null);
+  const [ingestionVisionProbe, setIngestionVisionProbe] =
+    useState<ModelVisionProbe | null>(null);
   const [ingestionArtifacts, setIngestionArtifacts] = useState<
     IngestionArtifact[]
   >([]);
   const [generatedArtifacts, setGeneratedArtifacts] = useState<
     GeneratedArtifact[]
   >([]);
+  const [generatedArtifactsListed, setGeneratedArtifactsListed] =
+    useState(false);
   const [artifactPreview, setArtifactPreview] =
     useState<ArtifactPreview | null>(null);
   const [artifactExportStatus, setArtifactExportStatus] =
@@ -2148,28 +2309,53 @@ export default function App() {
     null,
   );
   const [voiceOutputBusy, setVoiceOutputBusy] = useState(false);
+  const [voiceStatusRequested, setVoiceStatusRequested] = useState(false);
   const [memoryRecords, setMemoryRecords] = useState<MemoryRecord[]>([]);
   const [memoryBackends, setMemoryBackends] = useState<MemoryBackendDescriptor[]>(
     [],
   );
+  const [memoryAccessReport, setMemoryAccessReport] =
+    useState<MemoryAccessReport | null>(null);
+  const [memoryPendingGenerationResult, setMemoryPendingGenerationResult] =
+    useState<MemoryGeneratePendingResult | null>(null);
+  const [memoryExportResult, setMemoryExportResult] =
+    useState<MemoryExportResult | null>(null);
+  const [memoryClassificationResult, setMemoryClassificationResult] =
+    useState<MemoryClassifyResult | null>(null);
   const [memoryBackendProbe, setMemoryBackendProbe] =
     useState<MemoryBackendProbeReport | null>(null);
   const [promptDocs, setPromptDocs] = useState<PromptDoc[]>([]);
+  const [promptLibraryListed, setPromptLibraryListed] = useState(false);
   const [conversationDocs, setConversationDocs] = useState<ConversationDoc[]>([]);
   const [conversationTree, setConversationTree] = useState<ConversationTreeNode[]>(
     [],
   );
+  const [conversationLibraryListed, setConversationLibraryListed] =
+    useState(false);
   const [expandedConversation, setExpandedConversation] =
     useState<ExpandedConversation | null>(null);
+  const [conversationUsageReport, setConversationUsageReport] =
+    useState<ConversationUsageReport | null>(null);
   const [conversationRecoveryPlan, setConversationRecoveryPlan] =
     useState<ConversationRecoveryPlan | null>(null);
   const [conversationDeletePlan, setConversationDeletePlan] =
     useState<ConversationDeletePlan | null>(null);
+  const [conversationDeleteResult, setConversationDeleteResult] =
+    useState<ConversationDeleteResult | null>(null);
+  const [conversationRangeReview, setConversationRangeReview] =
+    useState<ConversationRangeReview | null>(null);
+  const [conversationRangeDeleteResult, setConversationRangeDeleteResult] =
+    useState<ConversationDeleteRangeResult | null>(null);
   const [skillDocs, setSkillDocs] = useState<SkillDoc[]>([]);
+  const [skillLibraryListed, setSkillLibraryListed] = useState(false);
   const [agentConfigs, setAgentConfigs] = useState<AgentConfigEntry[]>([]);
+  const [agentLibraryListed, setAgentLibraryListed] = useState(false);
   const [modelConfigs, setModelConfigs] = useState<SavedModelConfig[]>([]);
+  const [modelLibraryListed, setModelLibraryListed] = useState(false);
   const [modelDoctorReport, setModelDoctorReport] =
     useState<ModelDoctorReport | null>(null);
+  const [modelCapabilityProbe, setModelCapabilityProbe] =
+    useState<ModelCapabilityProbe | null>(null);
   const [profileSummaries, setProfileSummaries] = useState<ProfileSummary[]>([]);
   const [currentProfile, setCurrentProfile] = useState<ProfileSummary | null>(null);
   const [currentProfileError, setCurrentProfileError] = useState<string | null>(
@@ -2183,13 +2369,22 @@ export default function App() {
   const [secretLabel, setSecretLabel] = useState("");
   const [secretStatus, setSecretStatus] = useState<JsonValue | null>(null);
   const [capabilityDrafts, setCapabilityDrafts] = useState<CapabilityDraft[]>([]);
+  const [capabilityDraftsListed, setCapabilityDraftsListed] = useState(false);
   const [capabilityDoctorReport, setCapabilityDoctorReport] =
     useState<CapabilityDraftDoctorReport | null>(null);
   const [adapterPackages, setAdapterPackages] = useState<AdapterPackage[]>([]);
+  const [adapterLibraryListed, setAdapterLibraryListed] = useState(false);
   const [adapterDoctorReport, setAdapterDoctorReport] =
     useState<AdapterDoctorReport | null>(null);
+  const [clawHubResult, setClawHubResult] = useState<ClawHubResult | null>(null);
   const [activeSection, setActiveSection] = useState<ActiveSection>("chat");
   const [approvals, setApprovals] = useState<ApprovalRecord[]>([]);
+  const [approvalQueueReviewedRunId, setApprovalQueueReviewedRunId] =
+    useState<string | null>(null);
+  const [approvalAssessmentResult, setApprovalAssessmentResult] =
+    useState<ApprovalAssessmentResultRecord | null>(null);
+  const [approvalExecutionResult, setApprovalExecutionResult] =
+    useState<ApprovalExecutionResultRecord | null>(null);
   const [approvalUnlock, setApprovalUnlock] = useState("");
   const [approvalSignature, setApprovalSignature] = useState("");
   const [approvalControllerAgent, setApprovalControllerAgent] = useState("");
@@ -2206,6 +2401,26 @@ export default function App() {
   const effectiveMaxToolCalls =
     parseOptionalNonNegativeInt(maxToolCalls) ?? CALLS_MAX;
   const agentMode = toolBudgetMode();
+  const lowOverheadPresetActive =
+    rawToolOutput &&
+    !enableShell &&
+    !enableSubagent &&
+    !loadMemory &&
+    !loadSkills &&
+    includeIngestIds.length === 0 &&
+    clearMaxTokensBeforeCompaction &&
+    !maxTokensBeforeCompaction.trim() &&
+    !maxCompactionOutputTokens.trim() &&
+    !compactionGuidance.trim() &&
+    !manualCompactedContext.trim() &&
+    !allowUnsafeIngest &&
+    !ingestionGuardrailMode &&
+    !enablePromptRefinement &&
+    !promptRefinementAgentAwareness &&
+    !promptRefinementsJson.trim();
+  const simplePresetActive = agentMode === "answer" && lowOverheadPresetActive;
+  const routerPresetActive = agentMode === "action" && lowOverheadPresetActive;
+  const actionInterpreterActive = agentMode === "action" && !rawToolOutput;
   const remainingToolCalls = Math.max(0, effectiveMaxToolCalls - calls);
   const budgetPillClass =
     remainingToolCalls === 0
@@ -2654,6 +2869,12 @@ export default function App() {
       max_tokens_before_compaction: parseOptionalPositiveInt(
         maxTokensBeforeCompaction,
       ),
+      clear_max_tokens_before_compaction:
+        clearMaxTokensBeforeCompaction &&
+        !maxTokensBeforeCompaction.trim() &&
+        !maxCompactionOutputTokens.trim() &&
+        !compactionGuidance.trim() &&
+        !manualCompactedContext.trim(),
       max_compaction_output_tokens: parseOptionalPositiveInt(
         maxCompactionOutputTokens,
       ),
@@ -2851,7 +3072,7 @@ export default function App() {
   function requireOpsValue(label: string) {
     const value = opsValue.trim();
     if (!value) {
-      appendLine("error", `${label} needs a value.`);
+      appendLine("error", `${label} needs Payload.`);
       return null;
     }
     return value;
@@ -2860,7 +3081,7 @@ export default function App() {
   function requireOpsId(label: string) {
     const id = opsId.trim();
     if (!id) {
-      appendLine("error", `${label} needs an id.`);
+      appendLine("error", `${label} needs Target.`);
       return null;
     }
     return id;
@@ -2871,7 +3092,7 @@ export default function App() {
     if (!raw) return null;
     const days = Number(raw);
     if (!Number.isInteger(days) || days <= 0) {
-      appendLine("error", `${label} needs Value to be a positive whole number of days.`);
+      appendLine("error", `${label} needs Payload to be a positive whole number of days.`);
       return null;
     }
     return days;
@@ -2884,7 +3105,7 @@ export default function App() {
     }
     const score = Number(raw);
     if (!Number.isFinite(score) || score < 0 || score > 10) {
-      appendLine("error", "Score needs Value to be a number from 0 to 10.");
+      appendLine("error", "Score needs Payload to be a number from 0 to 10.");
       return null;
     }
     return score;
@@ -2927,7 +3148,7 @@ export default function App() {
     ) {
       appendLine(
         "error",
-        `${label} needs Value like { "from": 2, "to": 4 }.`,
+        `${label} needs Payload like { "from": 2, "to": 4 }.`,
       );
       return null;
     }
@@ -2953,7 +3174,7 @@ export default function App() {
     if (rest === null) return null;
     const match = rest.match(/^(\S+)(?:\s+([\s\S]*))?$/);
     if (!match) {
-      appendLine("error", "Manual tool shortcut needs a tool name.");
+      appendLine("error", "Tool-call shortcut needs a tool name.");
       return null;
     }
     return {
@@ -3023,8 +3244,8 @@ export default function App() {
       },
     ];
     const commands: SlashCommandSuggestion[] = [
-      { command: "/help", label: "Show shortcuts" },
-      { command: "/?", label: "Show shortcuts" },
+      { command: "/help", label: "Show shortcut map" },
+      { command: "/?", label: "Show shortcut map" },
       { command: "/preview", label: "Preview context" },
       { command: "/preview help", label: "Show preview shortcut" },
       { command: "/agent help", label: "Show agent switch shortcut" },
@@ -3035,13 +3256,13 @@ export default function App() {
       { command: "/agents help", label: "Show saved-agent shortcuts" },
       { command: "/agents show ", label: "Show saved agent" },
       { command: "/agents use ", label: "Use saved agent" },
-      { command: "/agents save ", label: "Save current setup as agent" },
+      { command: "/agents save ", label: "Save current settings as agent" },
       { command: "/agents export ", label: "Export saved agent" },
       { command: "/agents import ", label: "Import saved agent" },
       { command: "/agents delete ", label: "Delete saved agent" },
       { command: "/agents rm ", label: "Delete saved agent" },
       { command: "/tool help", label: "Show tool shortcuts" },
-      { command: "/tool!help", label: "Show manual tool shortcut" },
+      { command: "/tool!help", label: "Show tool-call shortcut" },
       ...forcedToolCommands,
       ...toolCommands,
       { command: "/run help", label: "Show saved prompt shortcuts" },
@@ -3068,32 +3289,32 @@ export default function App() {
       { command: "/prompts import ", label: "Import saved prompt" },
       { command: "/prompts delete ", label: "Delete saved prompt" },
       { command: "/prompts rm ", label: "Delete saved prompt" },
-      { command: "/models", label: "List model metadata" },
-      { command: "/model", label: "List model metadata" },
+      { command: "/models", label: "List saved models" },
+      { command: "/model", label: "List saved models" },
       { command: "/models help", label: "Show model shortcuts" },
       { command: "/model help", label: "Show model shortcuts" },
-      { command: "/models list", label: "List model metadata" },
-      { command: "/model list", label: "List model metadata" },
-      { command: "/models show ", label: "Show model metadata" },
-      { command: "/model show ", label: "Show model metadata" },
-      { command: "/models probe ", label: "Probe model capabilities" },
-      { command: "/model probe ", label: "Probe model capabilities" },
-      { command: "/models save ", label: "Save model metadata" },
-      { command: "/model save ", label: "Save model metadata" },
+      { command: "/models list", label: "List saved models" },
+      { command: "/model list", label: "List saved models" },
+      { command: "/models show ", label: "Show saved model" },
+      { command: "/model show ", label: "Show saved model" },
+      { command: "/models capabilities ", label: "Check model capabilities" },
+      { command: "/model capabilities ", label: "Check model capabilities" },
+      { command: "/models save ", label: "Save model" },
+      { command: "/model save ", label: "Save model" },
       { command: "/models save-current", label: "Save current model controls" },
       { command: "/model save-current", label: "Save current model controls" },
-      { command: "/models export ", label: "Export model metadata" },
-      { command: "/model export ", label: "Export model metadata" },
-      { command: "/models import ", label: "Import model metadata" },
-      { command: "/model import ", label: "Import model metadata" },
-      { command: "/models delete ", label: "Delete model metadata" },
-      { command: "/model delete ", label: "Delete model metadata" },
-      { command: "/models rm ", label: "Delete model metadata" },
-      { command: "/model rm ", label: "Delete model metadata" },
+      { command: "/models export ", label: "Export saved model" },
+      { command: "/model export ", label: "Export saved model" },
+      { command: "/models import ", label: "Import saved model" },
+      { command: "/model import ", label: "Import saved model" },
+      { command: "/models delete ", label: "Delete saved model" },
+      { command: "/model delete ", label: "Delete saved model" },
+      { command: "/models rm ", label: "Delete saved model" },
+      { command: "/model rm ", label: "Delete saved model" },
       { command: "/models providers", label: "List model providers" },
       { command: "/model providers", label: "List model providers" },
-      { command: "/models doctor", label: "Run model doctor" },
-      { command: "/model doctor", label: "Run model doctor" },
+      { command: "/models check", label: "Check model health" },
+      { command: "/model check", label: "Check model health" },
       { command: "/models provider-catalog", label: "Show provider catalog" },
       { command: "/model provider-catalog", label: "Show provider catalog" },
       { command: "/models provider-catalog help", label: "Show model catalog shortcuts" },
@@ -3102,22 +3323,22 @@ export default function App() {
       { command: "/model provider-catalog export ", label: "Export provider catalog" },
       { command: "/models provider-catalog import ", label: "Import provider catalog" },
       { command: "/model provider-catalog import ", label: "Import provider catalog" },
-      { command: "/models metadata-catalog", label: "Show metadata catalog" },
-      { command: "/model metadata-catalog", label: "Show metadata catalog" },
-      { command: "/models metadata-catalog help", label: "Show model catalog shortcuts" },
-      { command: "/model metadata-catalog help", label: "Show model catalog shortcuts" },
-      { command: "/models metadata-catalog export ", label: "Export metadata catalog" },
-      { command: "/model metadata-catalog export ", label: "Export metadata catalog" },
-      { command: "/models metadata-catalog import ", label: "Import metadata catalog" },
-      { command: "/model metadata-catalog import ", label: "Import metadata catalog" },
-      { command: "/raw help", label: "Show agent mode shortcuts" },
+      { command: "/models capability-catalog", label: "Show capability catalog" },
+      { command: "/model capability-catalog", label: "Show capability catalog" },
+      { command: "/models capability-catalog help", label: "Show model catalog shortcuts" },
+      { command: "/model capability-catalog help", label: "Show model catalog shortcuts" },
+      { command: "/models capability-catalog export ", label: "Export capability catalog" },
+      { command: "/model capability-catalog export ", label: "Export capability catalog" },
+      { command: "/models capability-catalog import ", label: "Import capability catalog" },
+      { command: "/model capability-catalog import ", label: "Import capability catalog" },
+      { command: "/exact help", label: "Show agent mode shortcuts" },
       { command: "/simple", label: "Use low-overhead answer mode" },
       { command: "/simple help", label: "Show agent mode shortcuts" },
-      { command: "/router", label: "Use one-action raw router mode" },
+      { command: "/router", label: "Use one-action router mode" },
       { command: "/router help", label: "Show agent mode shortcuts" },
-      { command: "/answer", label: "Use zero tool calls" },
+      { command: "/answer", label: "Answer only" },
       { command: "/answer help", label: "Show agent mode shortcuts" },
-      { command: "/action", label: "Use one tool call" },
+      { command: "/action", label: "Use one action" },
       { command: "/action help", label: "Show agent mode shortcuts" },
       { command: "/workflow", label: `Use default ${CALLS_MAX}-call workflow` },
       { command: "/workflow help", label: "Show agent mode shortcuts" },
@@ -3127,7 +3348,7 @@ export default function App() {
       { command: "/visibility full", label: "Show full tool schemas" },
       { command: "/visibility descriptions", label: "Show tool names and descriptions" },
       { command: "/visibility names", label: "Show tool names only" },
-      { command: "/visibility config", label: "Use configured tool visibility" },
+      { command: "/visibility default", label: "Use default tool visibility" },
       { command: "/approval help", label: "Show approval shortcuts" },
       { command: "/approval on", label: "Require approval for tool actions" },
       { command: "/approval off", label: "Auto-approve tool actions" },
@@ -3180,14 +3401,14 @@ export default function App() {
       { command: "/x402 help", label: "Show x402 shortcuts" },
       { command: "/x402 --help", label: "Show x402 shortcuts" },
       { command: "/x402 status", label: "Inspect visible x402 readiness" },
-      { command: "/x402 request ", label: "Probe an x402 endpoint" },
+      { command: "/x402 check ", label: "Check an x402 endpoint" },
       { command: "/x402 required ", label: "Build an x402 payment challenge" },
       { command: "/x402 settle ", label: "Verify and settle an x402 payment" },
       { command: "/payment", label: "Show x402 payment aliases" },
       { command: "/payment help", label: "Show x402 payment aliases" },
       { command: "/payment --help", label: "Show x402 payment aliases" },
       { command: "/payment x402-status", label: "Inspect visible x402 readiness" },
-      { command: "/payment x402-request ", label: "Probe an x402 endpoint" },
+      { command: "/payment x402-check ", label: "Check an x402 endpoint" },
       { command: "/payment x402-required ", label: "Build an x402 payment challenge" },
       { command: "/payment x402-settle ", label: "Verify and settle an x402 payment" },
       { command: "/memory help", label: "Show memory shortcuts" },
@@ -3197,8 +3418,8 @@ export default function App() {
       { command: "/memory list", label: "List memory records" },
       { command: "/memory access", label: "Show visible memory access" },
       { command: "/memory access --agent ", label: "Filter memory by agent" },
-      { command: "/memory backends", label: "List memory backends" },
-      { command: "/memory probe ", label: "Probe a memory backend" },
+      { command: "/memory storage", label: "List memory storage" },
+      { command: "/memory check ", label: "Check memory storage" },
       { command: "/memory preview", label: "Preview context with memory" },
       { command: "/memory preview ", label: "Preview context with memory" },
       { command: "/memory create ", label: "Create memory record" },
@@ -3228,7 +3449,7 @@ export default function App() {
       { command: "/skills import-doc ", label: "Import portable skill doc" },
       { command: "/skills import ", label: "Import portable skill doc" },
       { command: "/skills export ", label: "Export portable skill doc" },
-      { command: "/skills allow ", label: "Allow quarantined skill" },
+      { command: "/skills allow ", label: "Allow reviewed skill" },
       { command: "/skills quarantine ", label: "Quarantine skill" },
       { command: "/skill help", label: "Show skill shortcuts" },
       { command: "/skill on", label: "Load skills in context" },
@@ -3244,7 +3465,7 @@ export default function App() {
       { command: "/skill import-doc ", label: "Import portable skill doc" },
       { command: "/skill import ", label: "Import portable skill doc" },
       { command: "/skill export ", label: "Export portable skill doc" },
-      { command: "/skill allow ", label: "Allow quarantined skill" },
+      { command: "/skill allow ", label: "Allow reviewed skill" },
       { command: "/skill quarantine ", label: "Quarantine skill" },
       { command: "/subagent help", label: "Show subagent shortcuts" },
       { command: "/subagent on", label: "Enable subagent tool" },
@@ -3255,7 +3476,7 @@ export default function App() {
       { command: "/cost input ", label: "Set input token cost per million" },
       { command: "/cost output ", label: "Set output token cost per million" },
       { command: "/cost both ", label: "Set input and output token costs" },
-      { command: "/cost clear", label: "Use configured model costs" },
+      { command: "/cost default", label: "Use default model costs" },
       { command: "/cost status", label: "Show token cost overrides" },
       { command: "/usage", label: "Show current usage totals" },
       { command: "/usage help", label: "Show usage shortcuts" },
@@ -3289,7 +3510,7 @@ export default function App() {
       { command: "/guide help", label: "Show guidance shortcuts" },
       { command: "/stop", label: "Stop current run" },
       { command: "/stop help", label: "Show stop shortcuts" },
-      { command: "/stop default", label: "Use configured stop mode" },
+      { command: "/stop default", label: "Use default stop mode" },
       { command: "/stop discard", label: "Stop without retaining context" },
       { command: "/stop --discard ", label: "Stop, discard context, add reason" },
       { command: "/stop summarise", label: "Stop and retain a summary" },
@@ -3390,24 +3611,25 @@ export default function App() {
       { command: "/guardrails help", label: "Show guardrail shortcuts" },
       { command: "/guardrails mode warn", label: "Warn on flagged ingestion" },
       { command: "/guardrails mode block", label: "Block flagged ingestion" },
+      { command: "/guardrails mode default", label: "Use default ingestion guardrail mode" },
       { command: "/guardrails unsafe on", label: "Allow flagged ingestion content" },
       { command: "/guardrails unsafe off", label: "Block flagged ingestion content" },
       { command: "/guardrails status", label: "Show guardrail status" },
-      { command: "/raw", label: "Use raw tool outputs" },
+      { command: "/exact", label: "Use exact tool results" },
       { command: "/interpret", label: "Interpret tool outputs" },
       { command: "/interpret help", label: "Show output interpretation shortcuts" },
       { command: "/interpret ", label: "Set interpreter model" },
-      { command: "/interpret clear", label: "Use configured interpreter model" },
+      { command: "/interpret default", label: "Use default interpreter model" },
       { command: "/interpret status", label: "Show interpreter model" },
       { command: "/router-model help", label: "Show router model shortcuts" },
       { command: "/router-model ", label: "Set tool routing model" },
-      { command: "/router-model clear", label: "Use configured routing model" },
+      { command: "/router-model default", label: "Use default routing model" },
       { command: "/router-model status", label: "Show routing model" },
       { command: "/export", label: "Export backup bundle" },
       { command: "/export help", label: "Show bundle export shortcuts" },
-      { command: "/config", label: "Explain effective config" },
-      { command: "/config help", label: "Show config shortcut" },
-      { command: "/tools", label: "Show visible tools" },
+      { command: "/settings", label: "Show run settings" },
+      { command: "/settings help", label: "Show settings shortcut" },
+      { command: "/tools", label: "Show available tools" },
       { command: "/tools help", label: "Show tools shortcut" },
       { command: "/storage", label: "Show storage usage" },
       { command: "/storage help", label: "Show storage shortcuts" },
@@ -3423,16 +3645,15 @@ export default function App() {
       { command: "/voice transcribe", label: "Transcribe latest voice capture" },
       { command: "/voice transcribe ", label: "Transcribe an audio path" },
       { command: "/voice speak ", label: "Create speech from text" },
-      { command: "/voice stage ", label: "Stage speech tool input" },
+      { command: "/voice prepare ", label: "Prepare speech tool input" },
       { command: "/ingest", label: "List ingestion artifacts" },
       { command: "/ingest help", label: "Show ingestion shortcuts" },
       { command: "/ingest list", label: "List ingestion artifacts" },
-      { command: "/ingest backends", label: "List ingestion backends" },
+      { command: "/ingest readers", label: "List source readers" },
       { command: "/ingest status", label: "Show selected ingestion context" },
       { command: "/ingest add ", label: "Ingest a file path" },
-      { command: "/ingest probe-source ", label: "Probe source ingestion fit" },
-      { command: "/ingest probe-vision ", label: "Probe vision ingestion" },
-      { command: "/ingest probe ", label: "Probe vision ingestion" },
+      { command: "/ingest check-source ", label: "Check source ingestion fit" },
+      { command: "/ingest check-vision ", label: "Check vision ingestion" },
       { command: "/ingest show ", label: "Show ingestion artifact" },
       { command: "/ingest rerun ", label: "Rerun ingestion artifact" },
       { command: "/ingest use ", label: "Use ingestion artifact" },
@@ -3473,8 +3694,8 @@ export default function App() {
       { command: "/capability help", label: "Show capability shortcuts" },
       { command: "/capabilities list", label: "List capability drafts" },
       { command: "/capability list", label: "List capability drafts" },
-      { command: "/capabilities doctor", label: "Summarize capability drafts" },
-      { command: "/capability doctor", label: "Summarize capability drafts" },
+      { command: "/capabilities check", label: "Check capability drafts" },
+      { command: "/capability check", label: "Check capability drafts" },
       { command: "/capabilities propose ", label: "Propose capability draft" },
       { command: "/capabilities show ", label: "Show capability draft" },
       { command: "/capability show ", label: "Show capability draft" },
@@ -3517,24 +3738,24 @@ export default function App() {
       { command: "/profile revoke ", label: "Revoke profile grant" },
       { command: "/profiles revoke-grant ", label: "Revoke profile grant" },
       { command: "/profile revoke-grant ", label: "Revoke profile grant" },
-      { command: "/secrets", label: "List secret metadata" },
-      { command: "/secret", label: "List secret metadata" },
+      { command: "/secrets", label: "List secret records" },
+      { command: "/secret", label: "List secret records" },
       { command: "/secrets help", label: "Show secret shortcuts" },
       { command: "/secret help", label: "Show secret shortcuts" },
-      { command: "/secrets backends", label: "List secret backends" },
-      { command: "/secret backends", label: "List secret backends" },
-      { command: "/secrets list", label: "List secret metadata" },
-      { command: "/secret list", label: "List secret metadata" },
-      { command: "/secrets show ", label: "Show secret metadata" },
-      { command: "/secret show ", label: "Show secret metadata" },
-      { command: "/secrets set ", label: "Store secret from Value" },
-      { command: "/secret set ", label: "Store secret from Value" },
-      { command: "/secrets rotate ", label: "Rotate secret from Value" },
-      { command: "/secret rotate ", label: "Rotate secret from Value" },
-      { command: "/secrets delete ", label: "Delete secret metadata" },
-      { command: "/secret delete ", label: "Delete secret metadata" },
-      { command: "/secrets rm ", label: "Delete secret metadata" },
-      { command: "/secret rm ", label: "Delete secret metadata" },
+      { command: "/secrets storage", label: "Review secret storage" },
+      { command: "/secret storage", label: "Review secret storage" },
+      { command: "/secrets list", label: "List secret records" },
+      { command: "/secret list", label: "List secret records" },
+      { command: "/secrets show ", label: "Show secret record" },
+      { command: "/secret show ", label: "Show secret record" },
+      { command: "/secrets set ", label: "Store secret from Payload" },
+      { command: "/secret set ", label: "Store secret from Payload" },
+      { command: "/secrets rotate ", label: "Rotate secret from Payload" },
+      { command: "/secret rotate ", label: "Rotate secret from Payload" },
+      { command: "/secrets delete ", label: "Delete secret record" },
+      { command: "/secret delete ", label: "Delete secret record" },
+      { command: "/secrets rm ", label: "Delete secret record" },
+      { command: "/secret rm ", label: "Delete secret record" },
       { command: "/bundles", label: "Show bundle shortcuts" },
       { command: "/bundle", label: "Show bundle shortcuts" },
       { command: "/bundles help", label: "Show bundle shortcuts" },
@@ -3545,30 +3766,30 @@ export default function App() {
       { command: "/bundle export ", label: "Export profile bundle" },
       { command: "/bundles import ", label: "Import profile bundle" },
       { command: "/bundle import ", label: "Import profile bundle" },
-      { command: "/adapters", label: "List adapter manifests" },
-      { command: "/adapter", label: "List adapter manifests" },
+      { command: "/adapters", label: "List adapter packages" },
+      { command: "/adapter", label: "List adapter packages" },
       { command: "/adapters help", label: "Show adapter shortcuts" },
       { command: "/adapter help", label: "Show adapter shortcuts" },
-      { command: "/adapters list", label: "List adapter manifests" },
-      { command: "/adapter list", label: "List adapter manifests" },
-      { command: "/adapters doctor", label: "Check adapter operability" },
-      { command: "/adapter doctor", label: "Check adapter operability" },
-      { command: "/adapters show ", label: "Show adapter manifest" },
-      { command: "/adapter show ", label: "Show adapter manifest" },
+      { command: "/adapters list", label: "List adapter packages" },
+      { command: "/adapter list", label: "List adapter packages" },
+      { command: "/adapters check", label: "Check adapter readiness" },
+      { command: "/adapter check", label: "Check adapter readiness" },
+      { command: "/adapters show ", label: "Show adapter package" },
+      { command: "/adapter show ", label: "Show adapter package" },
       { command: "/adapters inspect ", label: "Inspect adapter source" },
       { command: "/adapter inspect ", label: "Inspect adapter source" },
       { command: "/adapters import ", label: "Import adapter package" },
       { command: "/adapter import ", label: "Import adapter package" },
-      { command: "/adapters import-manifest ", label: "Import adapter manifest" },
-      { command: "/adapter import-manifest ", label: "Import adapter manifest" },
-      { command: "/adapters export ", label: "Export adapter manifest" },
-      { command: "/adapter export ", label: "Export adapter manifest" },
+      { command: "/adapters import-manifest ", label: "Import adapter package JSON" },
+      { command: "/adapter import-manifest ", label: "Import adapter package JSON" },
+      { command: "/adapters export ", label: "Export adapter package" },
+      { command: "/adapter export ", label: "Export adapter package" },
       { command: "/adapters install-skill ", label: "Install adapter as skill" },
       { command: "/adapter install-skill ", label: "Install adapter as skill" },
-      { command: "/adapters allow ", label: "Allow adapter manifest" },
-      { command: "/adapter allow ", label: "Allow adapter manifest" },
-      { command: "/adapters quarantine ", label: "Quarantine adapter manifest" },
-      { command: "/adapter quarantine ", label: "Quarantine adapter manifest" },
+      { command: "/adapters allow ", label: "Allow adapter package" },
+      { command: "/adapter allow ", label: "Allow adapter package" },
+      { command: "/adapters quarantine ", label: "Block adapter package" },
+      { command: "/adapter quarantine ", label: "Block adapter package" },
       { command: "/adapters clawhub help", label: "Show ClawHub adapter shortcuts" },
       { command: "/adapter clawhub help", label: "Show ClawHub adapter shortcuts" },
       { command: "/adapters clawhub search ", label: "Search ClawHub catalog" },
@@ -3659,7 +3880,13 @@ export default function App() {
       return [];
     }
     const query = trimmed.slice(1).toLowerCase();
-    return slashCommandCatalog()
+    const catalog = slashCommandCatalog();
+    if (!query) {
+      return SLASH_STARTER_COMMANDS.map((command) =>
+        catalog.find((item) => item.command === command),
+      ).filter((item): item is SlashCommandSuggestion => Boolean(item));
+    }
+    return catalog
       .filter((item) => {
         const haystack = `${item.command} ${item.label}`.toLowerCase();
         return haystack.includes(query);
@@ -3670,8 +3897,15 @@ export default function App() {
 
   function slashCommandHelpText() {
     return [
-      "Available shortcuts:",
-      ...slashCommandCatalog().map((item) => `${item.command} - ${item.label}`),
+      "Shortcut map:",
+      "- Start: /preview, /tools, /settings",
+      "- Modes: /answer, /action, /workflow, /simple, /router",
+      "- Run control: /stop, /resume, /guide, /batch",
+      "- Inspect: /trace, /usage, /scores, /approvals",
+      "- Libraries: /agents, /prompts, /models, /memory, /skills, /ingest, /artifacts",
+      "- Safety and admin: /approval, /guardrails, /profiles, /secrets, /adapters, /hooks",
+      "- Advanced: /shell, /python, /typescript, /x402, /voice, /storage",
+      "Type / for starter shortcuts, keep typing to search, or use /tool help, /memory help, /trace help, /models help, /ingest help, /adapters help, or /batch help for exact syntax.",
     ].join("\n");
   }
 
@@ -3679,10 +3913,10 @@ export default function App() {
     return [
       "x402 shortcuts:",
       "- /x402 status",
-      "- /x402 request <url> [--method GET|POST] [--max-amount n] [--auto-pay] [--signature-secret id]",
+      "- /x402 check <url> [--method GET|POST] [--max-amount n] [--auto-pay] [--signature-secret id]",
       "- /x402 required --resource <url> --amount <n> --pay-to <addr> --asset <asset> --network <name>",
       "- /x402 settle <payment-signature> --facilitator <url> --resource <url> --amount <n> --pay-to <addr> --asset <asset> --network <name> [--mode verify|settle|verify-and-settle]",
-      "/payment x402-status, /payment x402-request, /payment x402-required, and /payment x402-settle are aliases.",
+      "/payment x402-status, /payment x402-check, /payment x402-required, and /payment x402-settle are aliases.",
     ].join("\n");
   }
 
@@ -3699,11 +3933,11 @@ export default function App() {
       loaded
         ? `visible payment tools: ${paymentToolCount}`
         : "visible payment tools: not loaded; use /tools first",
-      `request tool: ${loaded && hasTool("payment_x402_request") ? "visible" : "not visible"}`,
+      `check tool: ${loaded && hasTool("payment_x402_request") ? "visible" : "not visible"}`,
       `required tool: ${loaded && hasTool("payment_x402_required") ? "visible" : "not visible"}`,
       `settle tool: ${loaded && hasTool("payment_x402_settle") ? "visible" : "not visible"}`,
       bridgeSummary
-        ? `bridge x402: ${bridgeSummary.x402Enabled} bridges; daemon ${bridgeSummary.daemonX402Enabled ? "on" : "off"}`
+        ? `bridge x402: ${bridgeSummary.x402Enabled} bridges; run endpoint ${bridgeSummary.daemonX402Enabled ? "on" : "off"}`
         : "bridge x402: not loaded; use /bridges status",
       "Local env readiness is available from CLI/TUI /x402 status.",
     ].join("\n");
@@ -3727,27 +3961,27 @@ export default function App() {
 
   function configShortcutHelpText() {
     return [
-      "Config shortcuts:",
-      "- /config - explain the effective runtime config",
+      "Settings shortcuts:",
+      "- /settings - show active run settings",
     ].join("\n");
   }
 
   function toolsShortcutHelpText() {
     return [
       "Tools shortcuts:",
-      "- /tools - show visible tools for the current run setup",
+      "- /tools - show tools available to the current run",
     ].join("\n");
   }
 
   function voiceShortcutHelpText() {
     return [
       "Voice shortcuts:",
-      "- /voice status - show voice config, capture, and generated speech artifacts",
+      "- /voice status - show voice settings, capture, and generated speech artifacts",
       "- /voice capture - start microphone capture in the app",
       "- /voice stop - stop microphone capture and save an audio artifact",
       "- /voice transcribe [path] - transcribe the latest capture or an existing audio file",
       "- /voice speak [text] - synthesize speech from text or the latest assistant answer",
-      "- /voice stage [text] - stage voice_speak tool input without executing it",
+      "- /voice prepare [text] - prepare speech input without executing it",
     ].join("\n");
   }
 
@@ -3755,7 +3989,7 @@ export default function App() {
     return [
       "Guardrail shortcuts:",
       "- /guardrails status - review loaded ingestion artifacts and guardrail state",
-      "- /guardrails mode block|warn|allow|config - set the per-run ingestion guardrail mode",
+      "- /guardrails mode block|warn|allow|default - set the per-run ingestion guardrail mode",
       "- /guardrails unsafe on|off - toggle the unsafe-ingest override",
     ].join("\n");
   }
@@ -3763,10 +3997,10 @@ export default function App() {
   function interpretShortcutHelpText() {
     return [
       "Output interpretation shortcuts:",
-      "- /raw - return raw tool outputs",
+      "- /exact - return exact tool results",
       "- /interpret - use interpreted tool outputs",
       "- /interpret status - show the current interpreter model override",
-      "- /interpret clear - use the configured interpreter model",
+      "- /interpret default - use the default interpreter model",
       "- /interpret <model> - set a per-run interpreter model",
     ].join("\n");
   }
@@ -3775,7 +4009,7 @@ export default function App() {
     return [
       "Router model shortcuts:",
       "- /router-model status - show the current tool-routing model override",
-      "- /router-model clear - use the configured routing model",
+      "- /router-model default - use the default routing model",
       "- /router-model <model> - set a per-run tool-routing model",
     ].join("\n");
   }
@@ -3783,12 +4017,12 @@ export default function App() {
   function modeShortcutHelpText() {
     return [
       "Agent mode shortcuts:",
-      "- /answer - use zero tool calls",
-      "- /action - use one tool call",
+      "- /answer - answer without tool actions",
+      "- /action - allow one tool action",
       `- /workflow - use the default ${CALLS_MAX}-call workflow`,
-      "- /simple - use a low-overhead raw answer preset",
-      "- /router - use a one-action raw router preset",
-      "- /raw - return raw tool outputs",
+      "- /simple - use a low-overhead answer preset",
+      "- /router - use a one-action router preset",
+      "- /exact - return exact tool results",
       "- /interpret - use interpreted tool outputs",
     ].join("\n");
   }
@@ -3819,7 +4053,7 @@ export default function App() {
       "- /visibility full - show full tool schemas",
       "- /visibility descriptions - show tool names and descriptions",
       "- /visibility names - show tool names only",
-      "- /visibility config - use configured tool visibility",
+      "- /visibility default - use default tool visibility",
     ].join("\n");
   }
 
@@ -3857,7 +4091,7 @@ export default function App() {
       "- /cost input <usd-per-million> - set input token cost",
       "- /cost output <usd-per-million> - set output token cost",
       "- /cost both <input> <output> - set both token costs",
-      "- /cost clear - use configured model costs",
+      "- /cost default - use default model costs",
       "- /cost status - show token cost overrides",
     ].join("\n");
   }
@@ -3908,6 +4142,7 @@ export default function App() {
   function guideShortcutHelpText() {
     return [
       "Guide shortcuts:",
+      "- While a run is active, plain composer text also guides it",
       "- /guide <text> - steer the active run at the next safe checkpoint",
       "- /guide last <text> - steer the latest run if it is still active",
       "- /guide <run-id> <text> - steer a specific non-terminal run",
@@ -3998,6 +4233,151 @@ export default function App() {
       items: parsed.map((item) => item.input),
       itemKeys: null,
     };
+  }
+
+  function batchPayloadCount(value: unknown) {
+    if (Array.isArray(value)) return value.length;
+    if (!isUnknownRecord(value)) return null;
+    const candidates = [
+      value.items,
+      value.batches,
+      value.plans,
+      value.records,
+      value.results,
+    ];
+    const match = candidates.find((candidate) => Array.isArray(candidate));
+    return Array.isArray(match) ? match.length : null;
+  }
+
+  function batchPayloadId(value: unknown) {
+    if (!isUnknownRecord(value)) return "";
+    const id = value.batch_id ?? value.id;
+    return typeof id === "string" ? id : "";
+  }
+
+  function isBatchTargetId(value: string) {
+    const trimmed = value.trim();
+    return Boolean(trimmed) && trimmed.startsWith("batch-");
+  }
+
+  function batchPayloadSummary(value: unknown, fallback = "payload") {
+    const count = batchPayloadCount(value);
+    if (count !== null) {
+      return `${count} item${count === 1 ? "" : "s"}`;
+    }
+    const id = batchPayloadId(value);
+    if (id) return id;
+    if (isUnknownRecord(value)) {
+      const keys = Object.keys(value);
+      return `${keys.length} field${keys.length === 1 ? "" : "s"}`;
+    }
+    return fallback;
+  }
+
+  function runtimeSettingsFieldCount(value: unknown) {
+    if (isUnknownRecord(value)) return Object.keys(value).length;
+    if (Array.isArray(value)) return value.length;
+    return value == null ? 0 : 1;
+  }
+
+  function runtimeSettingsSummary(value: unknown) {
+    if (isUnknownRecord(value)) {
+      const provider = typeof value.provider === "string" ? value.provider : "";
+      const model = typeof value.model === "string" ? value.model : "";
+      if (provider || model) return [provider, model].filter(Boolean).join(" / ");
+      const fields = runtimeSettingsFieldCount(value);
+      return `${fields} field${fields === 1 ? "" : "s"}`;
+    }
+    if (Array.isArray(value)) {
+      return `${value.length} item${value.length === 1 ? "" : "s"}`;
+    }
+    if (typeof value === "string" && value.trim()) {
+      return previewText(value, 80);
+    }
+    return "payload";
+  }
+
+  function directToolTextPreview(value: unknown) {
+    if (typeof value === "string" && value.trim()) {
+      return previewText(value, 120);
+    }
+    if (!isUnknownRecord(value)) return "";
+    const candidates = [
+      value.stdout,
+      value.output,
+      value.result,
+      value.text,
+      value.final_output,
+      value.message,
+      value.stderr,
+      value.error,
+    ];
+    const text = candidates.find(
+      (candidate): candidate is string =>
+        typeof candidate === "string" && candidate.trim().length > 0,
+    );
+    return text ? previewText(text, 120) : "";
+  }
+
+  function directToolStatus(value: unknown) {
+    if (isUnknownRecord(value)) {
+      if (typeof value.error === "string" && value.error.trim()) return "error";
+      if (typeof value.status === "string" && value.status.trim()) {
+        return value.status;
+      }
+      if (typeof value.success === "boolean") {
+        return value.success ? "success" : "failed";
+      }
+      if (typeof value.ok === "boolean") {
+        return value.ok ? "success" : "failed";
+      }
+      if (typeof value.exit_code === "number") {
+        return value.exit_code === 0 ? "success" : `exit ${value.exit_code}`;
+      }
+    }
+    return "completed";
+  }
+
+  function directToolTone(result: DirectToolResult): ContextReviewCard["tone"] {
+    const status = directToolStatus(result.payload).toLowerCase();
+    if (
+      status.includes("error") ||
+      status.includes("fail") ||
+      status.includes("denied") ||
+      status.startsWith("exit ")
+    ) {
+      return "danger";
+    }
+    if (
+      status.includes("pending") ||
+      status.includes("approval") ||
+      status.includes("warning")
+    ) {
+      return "warning";
+    }
+    return "ok";
+  }
+
+  function directToolResultTitle(result: DirectToolResult) {
+    return result.kind === "shell" ? "Shell output" : `${result.name} output`;
+  }
+
+  function directToolResultSummary(result: DirectToolResult) {
+    const status = directToolStatus(result.payload);
+    const text = directToolTextPreview(result.payload);
+    if (text) return `${status}: ${text}`;
+    if (isUnknownRecord(result.payload)) {
+      const fields = Object.keys(result.payload).length;
+      return `${status}, ${fields} field${fields === 1 ? "" : "s"}`;
+    }
+    return status;
+  }
+
+  function recordDirectToolResult(result: DirectToolResult) {
+    setDirectToolResult(result);
+    appendEvent(
+      `${result.kind === "shell" ? "Shell" : `Tool ${result.name}`} output ready: ${directToolResultSummary(result)}.`,
+    );
   }
 
   function traceShortcutHelpText() {
@@ -4196,7 +4576,7 @@ export default function App() {
         if (!value || value.startsWith("--") || model !== null) {
           appendLine(
             "error",
-            "Ingest probe shortcut needs: /ingest probe-vision <path> --model <model>.",
+            "Ingest vision check shortcut needs: /ingest check-vision <path> --model <model>.",
           );
           return null;
         }
@@ -4209,7 +4589,7 @@ export default function App() {
         if (!value || model !== null) {
           appendLine(
             "error",
-            "Ingest probe shortcut needs: /ingest probe-vision <path> --model <model>.",
+            "Ingest vision check shortcut needs: /ingest check-vision <path> --model <model>.",
           );
           return null;
         }
@@ -4217,7 +4597,7 @@ export default function App() {
         continue;
       }
       if (part.startsWith("--")) {
-        appendLine("error", `Unknown ingest probe option: ${part}`);
+        appendLine("error", `Unknown ingest vision check option: ${part}`);
         return null;
       }
       pathParts.push(part);
@@ -4226,7 +4606,7 @@ export default function App() {
     if (!path || !model) {
       appendLine(
         "error",
-        "Ingest probe shortcut needs: /ingest probe-vision <path> --model <model>.",
+        "Ingest vision check shortcut needs: /ingest check-vision <path> --model <model>.",
       );
       return null;
     }
@@ -4244,7 +4624,7 @@ export default function App() {
         if (!value || value.startsWith("--") || visionModel !== null) {
           appendLine(
             "error",
-            "Ingest source probe shortcut needs: /ingest probe-source <path> [--vision-model <model>].",
+            "Ingest source check shortcut needs: /ingest check-source <path> [--vision-model <model>].",
           );
           return null;
         }
@@ -4257,7 +4637,7 @@ export default function App() {
         if (!value || visionModel !== null) {
           appendLine(
             "error",
-            "Ingest source probe shortcut needs: /ingest probe-source <path> [--vision-model <model>].",
+            "Ingest source check shortcut needs: /ingest check-source <path> [--vision-model <model>].",
           );
           return null;
         }
@@ -4265,14 +4645,14 @@ export default function App() {
         continue;
       }
       if (part.startsWith("--")) {
-        appendLine("error", `Unknown ingest source probe option: ${part}`);
+        appendLine("error", `Unknown ingest source check option: ${part}`);
         return null;
       }
       pathParts.push(part);
     }
     const path = pathParts.join(" ").trim();
     if (!path) {
-      appendLine("error", "Ingest source probe shortcut needs a path.");
+      appendLine("error", "Ingest source check shortcut needs a path.");
       return null;
     }
     return { path, visionModel };
@@ -4286,6 +4666,7 @@ export default function App() {
       const part = parts[index];
       if (
         part === "--backend" ||
+        part === "--reader" ||
         part === "--vision-model" ||
         part === "--guardrail-model"
       ) {
@@ -4300,7 +4681,9 @@ export default function App() {
         index += 1;
         continue;
       }
-      const inline = part.match(/^(--backend|--vision-model|--guardrail-model)=(.+)$/);
+      const inline = part.match(
+        /^(--backend|--reader|--vision-model|--guardrail-model)=(.+)$/,
+      );
       if (inline) {
         const [, flag, value] = inline;
         if (!setIngestModelOption(options, flag, value.trim(), command)) {
@@ -4335,9 +4718,9 @@ export default function App() {
       appendLine("error", `Ingest ${command} ${flag} needs a value.`);
       return false;
     }
-    if (flag === "--backend") {
+    if (flag === "--backend" || flag === "--reader") {
       if (options.backend !== undefined) {
-        appendLine("error", `Ingest ${command} accepts one --backend value.`);
+        appendLine("error", `Ingest ${command} accepts one reader value.`);
         return false;
       }
       options.backend = value;
@@ -4363,7 +4746,7 @@ export default function App() {
     const parts = rest.split(/\s+/).filter(Boolean);
     const url = parts.shift();
     if (!url) {
-      appendLine("error", "x402 request shortcut needs a URL.");
+      appendLine("error", "x402 check shortcut needs a URL.");
       return null;
     }
     const inputBody: Record<string, unknown> = { url };
@@ -4376,7 +4759,7 @@ export default function App() {
       if (part === "--method" || part === "--max-amount" || part === "--signature-secret") {
         const value = parts[index + 1];
         if (!value || value.startsWith("--")) {
-          appendLine("error", `x402 request ${part} needs a value.`);
+          appendLine("error", `x402 check ${part} needs a value.`);
           return null;
         }
         if (!setX402RequestOption(inputBody, part, value)) {
@@ -4394,10 +4777,10 @@ export default function App() {
         continue;
       }
       if (part.startsWith("--")) {
-        appendLine("error", `Unknown x402 request option: ${part}`);
+        appendLine("error", `Unknown x402 check option: ${part}`);
         return null;
       }
-      appendLine("error", "x402 request accepts one URL plus option flags.");
+      appendLine("error", "x402 check accepts one URL plus option flags.");
       return null;
     }
     return inputBody;
@@ -4411,7 +4794,7 @@ export default function App() {
     if (flag === "--method") {
       const method = value.toUpperCase();
       if (method !== "GET" && method !== "POST") {
-        appendLine("error", "x402 request --method must be GET or POST.");
+        appendLine("error", "x402 check --method must be GET or POST.");
         return false;
       }
       inputBody.method = method;
@@ -4420,7 +4803,7 @@ export default function App() {
     if (flag === "--max-amount") {
       const amount = Number(value);
       if (!Number.isFinite(amount) || amount < 0) {
-        appendLine("error", "x402 request --max-amount needs a non-negative number.");
+        appendLine("error", "x402 check --max-amount needs a non-negative number.");
         return false;
       }
       inputBody.max_amount = amount;
@@ -4785,7 +5168,7 @@ export default function App() {
   function adapterShortcutHelpText() {
     return [
       "/adapters list",
-      "/adapters doctor",
+      "/adapters check",
       "/adapters show <id>",
       "/adapters inspect <path>",
       "/adapters import <path>",
@@ -4887,12 +5270,12 @@ export default function App() {
   function ingestShortcutHelpText() {
     return [
       "/ingest list",
-      "/ingest backends",
+      "/ingest readers - review source readers",
       "/ingest status",
-      "/ingest add <path> [--backend <backend>] [--vision-model <model>] [--guardrail-model <model>]",
-      "/ingest rerun <id> [--backend <backend>] [--vision-model <model>] [--guardrail-model <model>]",
-      "/ingest probe-source <path> [--vision-model <model>]",
-      "/ingest probe-vision <path> --model <model>",
+      "/ingest add <path> [--reader <reader>] [--vision-model <model>] [--guardrail-model <model>]",
+      "/ingest rerun <id> [--reader <reader>] [--vision-model <model>] [--guardrail-model <model>]",
+      "/ingest check-source <path> [--vision-model <model>]",
+      "/ingest check-vision <path> --model <model>",
       "/ingest show <id>",
       "/ingest use <id>",
       "/ingest include <id>",
@@ -4960,7 +5343,7 @@ export default function App() {
     }
     const id = args[0] || selectedConversationShortcutId();
     if (!id) {
-      appendLine("error", `${label} shortcut needs a conversation id or selected Id.`);
+      appendLine("error", `${label} shortcut needs a conversation id or selected Target.`);
       return null;
     }
     return id;
@@ -4996,7 +5379,7 @@ export default function App() {
     if (!id) {
       appendLine(
         "error",
-        `Conversation ${command} shortcut needs a conversation id or selected Id.`,
+        `Conversation ${command} shortcut needs a conversation id or selected Target.`,
       );
       return null;
     }
@@ -5200,7 +5583,7 @@ export default function App() {
     if (!id) {
       appendLine(
         "error",
-        `Conversation ${command} shortcut needs a conversation id or selected Id.`,
+        `Conversation ${command} shortcut needs a conversation id or selected Target.`,
       );
       return null;
     }
@@ -5314,8 +5697,8 @@ export default function App() {
       "/memory preview [prompt]",
       "/memory list",
       "/memory access [--topic <topic>] [--agent <agent>]",
-      "/memory backends",
-      "/memory probe [backend]",
+      "/memory storage - review memory storage options",
+      "/memory check [storage] - check memory storage readiness",
       "/memory create [--user] [--agent <agent>] [--conversation <id>] [--topic <topic>] <content>",
       "/memory generate [--user] [--agent <agent>] [--conversation <id>] [--range <range>] [--topic <topic>] <text> [--guidance <text>]",
       "/memory generate-conversation|generate-conv [id] [from:to] [--user] [--agent <agent>] [--topic <topic>] [--guidance <text>]",
@@ -5734,20 +6117,20 @@ export default function App() {
       if (arg === "--topic") {
         const topic = args[index + 1];
         if (!topic || topic.startsWith("--")) {
-          appendLine("error", "Memory probe shortcut needs a value after --topic.");
+          appendLine("error", "Memory storage check shortcut needs a value after --topic.");
           return null;
         }
         topics.push(topic);
         index += 1;
       } else if (arg.startsWith("--")) {
-        appendLine("error", `Memory probe shortcut does not accept ${arg}.`);
+        appendLine("error", `Memory storage check shortcut does not accept ${arg}.`);
         return null;
       } else {
         positional.push(arg);
       }
     }
     if (positional.length > 1) {
-      appendLine("error", "Memory probe shortcut accepts at most one backend id.");
+      appendLine("error", "Memory storage check accepts at most one storage id.");
       return null;
     }
     return {
@@ -5945,7 +6328,7 @@ export default function App() {
     if (!id) {
       appendLine(
         "error",
-        "Memory generate-conversation shortcut needs a conversation id or selected Id.",
+        "Memory generate-conversation shortcut needs a conversation id or selected Target.",
       );
       return null;
     }
@@ -6128,11 +6511,6 @@ export default function App() {
     }
     const rest = trimmed === matched ? "" : trimmed.slice(matched.length).trim();
     return parseResumeShortcut(rest ? `/resume ${rest}` : "/resume");
-  }
-
-  function appendJson(label: string, value: unknown) {
-    appendEvent(label);
-    appendLine("assistant", JSON.stringify(value, null, 2));
   }
 
   function promptForPostRunCompaction(runId: string) {
@@ -6666,8 +7044,9 @@ export default function App() {
           ? await daemonJson<TraceRunRecord[]>(`/traces?limit=${limit}`)
           : await invoke<TraceRunRecord[]>("trace_list", { limit });
       setTraceRuns(runs);
+      setTraceRunsListed(true);
       setActiveSection("trace");
-      appendJson("Trace runs", runs);
+      appendEvent(`Trace runs: ${runs.length} loaded.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Trace list failed: ${msg}`);
@@ -7030,23 +7409,23 @@ export default function App() {
           className="advanced-controls"
           style={sectionThemeStyle("trace")}
         >
-          <summary title="Show run staging and replay actions">
+          <summary title="Show per-run selection and replay actions">
             <span className="advanced-controls-icon" aria-hidden="true">
               <AppIcon name="trace" />
             </span>
             <span className="advanced-controls-copy">
-              <strong>More</strong>
-              <span>Stage or replay this run</span>
+              <strong>Run actions</strong>
+              <span>Select and replay</span>
             </span>
           </summary>
           <div className="button-grid">
             <button
               type="button"
-              title="Move this run id into the Target id field."
+              title="Use this run as the Target."
               onClick={() => setOpsId(node.run_id)}
               disabled={running}
             >
-              <ButtonLabel icon="trace">Set id</ButtonLabel>
+              <ButtonLabel icon="trace">Select</ButtonLabel>
             </button>
             <button
               type="button"
@@ -7124,7 +7503,7 @@ export default function App() {
                 `Fix or disable hook ${kind.hook_id}, then replay the run.`,
                 "Replay with hooks skipped once only after accepting the override.",
               ]
-            : ["Wait for the configured hook retry and review the final attempt."],
+            : ["Wait for the scheduled hook retry and review the final attempt."],
         };
       });
   }
@@ -7300,7 +7679,6 @@ export default function App() {
       const events = await fetchTraceEvents(runId);
       const plan = hookRemediationsFromEvents(events);
       appendEvent(`Hook review: ${plan.length} issue(s) for ${runId}.`);
-      appendJson("Hook review", plan);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       appendLine("error", `Hook review failed: ${msg}`);
@@ -7475,20 +7853,20 @@ export default function App() {
     return [
       "/models list",
       "/models show <id>",
-      "/models probe <id>",
+      "/models capabilities <id> - check saved-model capabilities",
       "/models save [--top-p <0..1>] [--top-k <n>] [--reasoning-effort <value>] [--frequency-penalty <-2..2>] [--presence-penalty <-2..2>] <id> [json]",
       "/models save-current",
       "/models export <id> <path>",
       "/models import <path> --confirm",
       "/models delete|rm <id> --confirm",
       "/models providers",
-      "/models doctor",
+      "/models check",
       "/models provider-catalog show",
       "/models provider-catalog export <path>",
       "/models provider-catalog import <path> --confirm",
-      "/models metadata-catalog show",
-      "/models metadata-catalog export <path>",
-      "/models metadata-catalog import <path> --confirm",
+      "/models capability-catalog show - show model capability catalog",
+      "/models capability-catalog export <path> - export model capability catalog",
+      "/models capability-catalog import <path> --confirm - import model capability catalog",
       "/model is accepted as an alias for /models.",
     ].join("\n");
   }
@@ -7644,7 +8022,7 @@ export default function App() {
       ) {
         appendLine(
           "error",
-          "Model save metadata must be a JSON object when provider-option flags are used.",
+          "Model save details must be a JSON object when provider-option flags are used.",
         );
         return null;
       }
@@ -7658,7 +8036,7 @@ export default function App() {
           typeof existingOptions !== "object" ||
           Array.isArray(existingOptions))
       ) {
-        appendLine("error", "Model save metadata.provider_options must be a JSON object.");
+        appendLine("error", "Model save details.provider_options must be a JSON object.");
         return null;
       }
       metadataDoc.provider_options = {
@@ -7696,7 +8074,7 @@ export default function App() {
       "/profiles grants [from-profile|--from <profile>]",
       "/profiles grant [--from <profile>] --to <profile> --kind <agent|memory|tool|skill|category> <resource>",
       "/profiles grant <to-profile> <agent|memory|tool|skill|category> <resource> [--from <profile>]",
-      "  memory resources: agent:<id>, memory:<id>, raw id, or *",
+      "  memory resources: agent:<id>, memory:<id>, plain id, or *",
       "/profiles revoke <id> --confirm",
       "/profile is accepted as an alias for /profiles.",
     ].join("\n");
@@ -7876,7 +8254,7 @@ export default function App() {
     if (remaining.length || !toProfile || !isProfileGrantKind(kind) || !resource) {
       appendLine(
         "error",
-        "Profiles grant shortcut needs: /profiles grant [--from <profile>] --to <profile> --kind <agent|memory|tool|skill|category> <resource> or /profiles grant <to-profile> <kind> <resource> [--from <profile>]. Memory resources support agent:<id>, memory:<id>, raw id, or *.",
+        "Profiles grant shortcut needs: /profiles grant [--from <profile>] --to <profile> --kind <agent|memory|tool|skill|category> <resource> or /profiles grant <to-profile> <kind> <resource> [--from <profile>]. Memory resources support agent:<id>, memory:<id>, plain id, or *.",
       );
       return null;
     }
@@ -7885,11 +8263,11 @@ export default function App() {
 
   function secretShortcutHelpText() {
     return [
-      "/secrets backends",
-      "/secrets list",
-      "/secrets show <id>",
-      "/secrets set <id> [--label <label>] - store Value as the secret value",
-      "/secrets rotate <id> - rotate using Value as the new value",
+      "/secrets storage - review secret storage",
+      "/secrets list - list redacted secret records",
+      "/secrets show <id> - show a redacted secret record",
+      "/secrets set <id> [--label <label>] - store Payload as the secret value",
+      "/secrets rotate <id> - rotate using Payload as the new value",
       "/secrets delete|rm <id> --confirm",
       "/secret is accepted as an alias for /secrets.",
     ].join("\n");
@@ -7925,7 +8303,7 @@ export default function App() {
     }
     appendLine(
       "error",
-      "Secrets set stores the existing Value field; do not put secret values in the slash command.",
+      "Secrets set stores the existing Payload field; do not put secret values in the slash command.",
     );
     return null;
   }
@@ -7939,7 +8317,7 @@ export default function App() {
     if (args.length !== 1) {
       appendLine(
         "error",
-        `Secrets ${command} uses the existing Value field; provide only the secret id in the slash command.`,
+        `Secrets ${command} uses the existing Payload field; provide only the secret id in the slash command.`,
       );
       return null;
     }
@@ -8651,11 +9029,9 @@ export default function App() {
           if (parsed.confirmed) {
             await deleteCompactionFromOps(parsed.id, true);
           } else {
-            appendJson("Compaction delete confirmation", {
-              pending_action: "delete_compaction",
-              compaction_id: parsed.id,
-              confirm_command: `/compact delete ${parsed.id} --confirm`,
-            });
+            appendEvent(
+              `Compaction delete pending: ${parsed.id}. Confirm with /compact delete ${parsed.id} --confirm.`,
+            );
           }
         }
         return;
@@ -8666,7 +9042,7 @@ export default function App() {
       setOpsValue(draft);
       appendLine("user", prompt);
       appendEvent(
-        `Manual compacted context set (~${estimateLocalTokens(draft)} tokens) and sent to Value.`,
+        `Manual compacted context set (~${estimateLocalTokens(draft)} tokens) and sent to Payload.`,
       );
       return;
     }
@@ -8703,10 +9079,10 @@ export default function App() {
       }
       if (value.startsWith("mode ")) {
         const mode = value.slice("mode ".length).trim();
-        if (mode === "config") {
+        if (mode === "default" || mode === "config") {
           setIngestionGuardrailMode("");
           setAllowUnsafeIngest(false);
-          appendEvent("Ingestion guardrail mode set to config.");
+          appendEvent("Ingestion guardrail mode set to default.");
           return;
         }
         if (mode === "block" || mode === "warn" || mode === "allow") {
@@ -8718,7 +9094,7 @@ export default function App() {
       }
       appendLine(
         "error",
-        "Guardrails shortcut needs review, status, help, mode block|warn|allow|config, unsafe on, or unsafe off.",
+        "Guardrails shortcut needs review, status, help, mode block|warn|allow|default, unsafe on, or unsafe off.",
       );
       return;
     }
@@ -8785,6 +9161,8 @@ export default function App() {
     }
 
     if (
+      prompt === "/exact help" ||
+      prompt === "/exact --help" ||
       prompt === "/raw help" ||
       prompt === "/raw --help" ||
       prompt === "/answer help" ||
@@ -8804,11 +9182,11 @@ export default function App() {
       return;
     }
 
-    if (prompt === "/raw") {
+    if (prompt === "/exact" || prompt === "/raw") {
       setInput("");
       setRawToolOutput(true);
-      appendLine("user", "/raw");
-      appendEvent("Output mode set to raw tool results.");
+      appendLine("user", prompt);
+      appendEvent("Output mode set to exact tool results.");
       return;
     }
 
@@ -8828,12 +9206,12 @@ export default function App() {
         setInput("");
         setRawToolOutput(false);
         appendLine("user", prompt);
-        if (interpreterModel === "clear") {
+        if (interpreterModel === "default" || interpreterModel === "clear") {
           setToolOutputInterpretationModel("");
-          appendEvent("Interpreter model cleared.");
+          appendEvent("Interpreter model set to default.");
         } else if (interpreterModel === "status") {
           appendEvent(
-            `Interpreter model: ${toolOutputInterpretationModel.trim() || "configured default"}.`,
+            `Interpreter model: ${toolOutputInterpretationModel.trim() || "default"}.`,
           );
         } else if (interpreterModel) {
           setToolOutputInterpretationModel(interpreterModel);
@@ -8853,12 +9231,12 @@ export default function App() {
       appendLine("user", prompt);
       if (routingModel === "help" || routingModel === "--help") {
         appendLine("assistant", routerModelShortcutHelpText());
-      } else if (routingModel === "clear") {
+      } else if (routingModel === "default" || routingModel === "clear") {
         setToolRoutingModel("");
-        appendEvent("Routing model cleared.");
+        appendEvent("Routing model set to default.");
       } else if (routingModel === "status" || !routingModel) {
         appendEvent(
-          `Routing model: ${toolRoutingModel.trim() || "configured default"}.`,
+          `Routing model: ${toolRoutingModel.trim() || "default"}.`,
         );
       } else {
         setToolRoutingModel(routingModel);
@@ -8871,7 +9249,7 @@ export default function App() {
       setInput("");
       setAgentMode("answer");
       appendLine("user", "/answer");
-      appendEvent("Agent mode set to answer only (0 tool calls).");
+      appendEvent("Agent mode set to answer only.");
       return;
     }
 
@@ -8879,7 +9257,7 @@ export default function App() {
       setInput("");
       setAgentMode("action");
       appendLine("user", "/action");
-      appendEvent("Agent mode set to one action (1 tool call).");
+      appendEvent("Agent mode set to one action.");
       return;
     }
 
@@ -8894,23 +9272,12 @@ export default function App() {
     if (prompt === "/simple" || prompt === "/router") {
       const routerMode = prompt === "/router";
       setInput("");
-      setAgentMode(routerMode ? "action" : "answer");
-      setRawToolOutput(true);
-      setEnableShell(false);
-      setEnableSubagent(false);
-      setLoadMemory(false);
-      setLoadSkills(false);
-      setIncludeIngestIds([]);
-      setAllowUnsafeIngest(false);
-      setIngestionGuardrailMode("");
-      setEnablePromptRefinement(false);
-      setPromptRefinementAgentAwareness(false);
-      setPromptRefinementsJson("");
+      applyLowOverheadPreset(routerMode ? "router" : "answer");
       appendLine("user", prompt);
       appendEvent(
         routerMode
-          ? "Preset applied: one-action raw router, with memory and subagents off."
-          : "Preset applied: simple raw answer, with tools, memory, and subagents off.",
+          ? "Preset applied: one-action router, with memory, compaction, and subagents off."
+          : "Preset applied: simple answer, with tools, memory, and subagents off.",
       );
       return;
     }
@@ -8942,7 +9309,7 @@ export default function App() {
     if (prompt === "/visibility") {
       appendLine(
         "error",
-        "Visibility shortcut needs full, descriptions, names, or config.",
+        "Visibility shortcut needs full, descriptions, names, or default.",
       );
       return;
     }
@@ -8961,13 +9328,13 @@ export default function App() {
             ? "name_and_description"
             : value === "names" || value === "name_only"
               ? "name_only"
-              : value === "config"
+              : value === "default" || value === "config"
                 ? ""
                 : null;
       if (visibility === null) {
         appendLine(
           "error",
-          "Visibility shortcut needs full, descriptions, names, or config.",
+          "Visibility shortcut needs full, descriptions, names, or default.",
         );
         return;
       }
@@ -8977,7 +9344,7 @@ export default function App() {
       appendEvent(
         visibility
           ? `Tool visibility set to ${visibility.replaceAll("_", " ")}.`
-          : "Tool visibility set to config default.",
+          : "Tool visibility set to default.",
       );
       return;
     }
@@ -9024,7 +9391,7 @@ export default function App() {
         setRequireApproval(false);
         appendLine("user", "/approval off");
         appendEvent(
-          "Approval gate disabled; sensitive tool calls will be auto-approved for this run configuration.",
+          "Approval gate disabled; sensitive tool calls will be auto-approved for this run.",
         );
         return;
       }
@@ -9293,26 +9660,34 @@ export default function App() {
       return;
     }
     if (
+      prompt === "/x402 check" ||
       prompt === "/x402 request" ||
       prompt === "/x402 required" ||
       prompt === "/x402 settle" ||
+      prompt === "/payment x402-check" ||
       prompt === "/payment x402-request" ||
       prompt === "/payment x402-required" ||
       prompt === "/payment x402-settle"
     ) {
       appendLine(
         "error",
-        "x402 shortcuts: /x402 status; /x402 request <url> [--method GET|POST] [--max-amount n] [--auto-pay] [--signature-secret id]; /x402 required --resource <url> --amount <n> --pay-to <addr> --asset <asset> --network <name>; /x402 settle <payment-signature> --facilitator <url> --resource <url> --amount <n> --pay-to <addr> --asset <asset> --network <name> [--mode verify|settle|verify-and-settle].",
+        "x402 shortcuts: /x402 status; /x402 check <url> [--method GET|POST] [--max-amount n] [--auto-pay] [--signature-secret id]; /x402 required --resource <url> --amount <n> --pay-to <addr> --asset <asset> --network <name>; /x402 settle <payment-signature> --facilitator <url> --resource <url> --amount <n> --pay-to <addr> --asset <asset> --network <name> [--mode verify|settle|verify-and-settle].",
       );
       return;
     }
     if (
+      prompt.startsWith("/x402 check ") ||
       prompt.startsWith("/x402 request ") ||
+      prompt.startsWith("/payment x402-check ") ||
       prompt.startsWith("/payment x402-request ")
     ) {
-      const prefix = prompt.startsWith("/x402 request ")
-        ? "/x402 request "
-        : "/payment x402-request ";
+      const prefix = prompt.startsWith("/x402 check ")
+        ? "/x402 check "
+        : prompt.startsWith("/x402 request ")
+          ? "/x402 request "
+          : prompt.startsWith("/payment x402-check ")
+            ? "/payment x402-check "
+            : "/payment x402-request ";
       const inputBody = parseX402RequestShortcut(
         prompt.slice(prefix.length).trim(),
       );
@@ -9451,10 +9826,14 @@ export default function App() {
       setInput("");
       appendLine("user", "/cost");
       appendEvent(
-        `Input cost override: ${inputCostPerMillion.trim() || "config"} $/M`,
+        inputCostPerMillion.trim()
+          ? `Input cost override: ${inputCostPerMillion.trim()} $/M`
+          : "Input cost override: default model cost.",
       );
       appendEvent(
-        `Output cost override: ${outputCostPerMillion.trim() || "config"} $/M`,
+        outputCostPerMillion.trim()
+          ? `Output cost override: ${outputCostPerMillion.trim()} $/M`
+          : "Output cost override: default model cost.",
       );
       return;
     }
@@ -9467,16 +9846,16 @@ export default function App() {
         appendLine("assistant", costShortcutHelpText());
         return;
       }
-      if (action === "clear") {
+      if (action === "default" || action === "clear") {
         if (args.length) {
-          appendLine("error", "Cost clear shortcut accepts no arguments.");
+          appendLine("error", "Cost default shortcut accepts no arguments.");
           return;
         }
         setInput("");
         setInputCostPerMillion("");
         setOutputCostPerMillion("");
-        appendLine("user", "/cost clear");
-        appendEvent("Token cost overrides cleared; configured model costs will be used.");
+        appendLine("user", prompt);
+        appendEvent("Token cost overrides cleared; default model costs will be used.");
         return;
       }
       if (action === "status") {
@@ -9487,10 +9866,14 @@ export default function App() {
         setInput("");
         appendLine("user", "/cost status");
         appendEvent(
-          `Input cost override: ${inputCostPerMillion.trim() || "config"} $/M`,
+          inputCostPerMillion.trim()
+            ? `Input cost override: ${inputCostPerMillion.trim()} $/M`
+            : "Input cost override: default model cost.",
         );
         appendEvent(
-          `Output cost override: ${outputCostPerMillion.trim() || "config"} $/M`,
+          outputCostPerMillion.trim()
+            ? `Output cost override: ${outputCostPerMillion.trim()} $/M`
+            : "Output cost override: default model cost.",
         );
         return;
       }
@@ -9541,7 +9924,7 @@ export default function App() {
         );
         return;
       }
-      appendLine("error", "Cost shortcut needs input, output, both, clear, or status.");
+      appendLine("error", "Cost shortcut needs input, output, both, default, or status.");
       return;
     }
 
@@ -9562,7 +9945,7 @@ export default function App() {
         appendEvent(`Switched demo agent to ${agentDisplayName(nextAgent)}`);
       } else {
         setAgentId(nextAgent);
-        appendEvent(`Selected configured agent ${nextAgent}`);
+        appendEvent(`Selected saved agent ${nextAgent}`);
       }
       return;
     }
@@ -9573,7 +9956,7 @@ export default function App() {
       setActiveSection("chat");
       appendLine("user", prompt);
       const rest = prompt === "/agents" ? "" : prompt.slice("/agents ".length).trim();
-      if (!rest) {
+      if (!rest || rest === "list") {
         await reviewAgents();
       } else if (rest === "help" || rest === "--help") {
         appendLine("assistant", agentShortcutHelpText());
@@ -9622,11 +10005,9 @@ export default function App() {
           if (parsed.confirmed) {
             await importAgent(parsed.path);
           } else {
-            appendJson("Agent import confirmation", {
-              pending_action: "import_agent",
-              path: parsed.path,
-              confirm_command: `/agents import ${parsed.path} --confirm`,
-            });
+            appendEvent(
+              `Agent import pending: ${parsed.path}. Confirm with /agents import ${parsed.path} --confirm.`,
+            );
           }
         }
       } else if (rest.startsWith("delete ") || rest.startsWith("rm ")) {
@@ -9638,11 +10019,9 @@ export default function App() {
           if (parsed.confirmed) {
             await deleteAgentFromOps(parsed.id, true);
           } else {
-            appendJson("Agent delete confirmation", {
-              pending_action: "delete_agent",
-              agent_id: parsed.id,
-              confirm_command: `/agents delete ${parsed.id} --confirm`,
-            });
+            appendEvent(
+              `Agent delete pending: ${parsed.id}. Confirm with /agents delete ${parsed.id} --confirm.`,
+            );
           }
         }
       } else {
@@ -9742,16 +10121,21 @@ export default function App() {
       return;
     }
 
-    if (prompt === "/config help" || prompt === "/config --help") {
+    if (
+      prompt === "/settings help" ||
+      prompt === "/settings --help" ||
+      prompt === "/config help" ||
+      prompt === "/config --help"
+    ) {
       setInput("");
       appendLine("user", prompt);
       appendLine("assistant", configShortcutHelpText());
       return;
     }
 
-    if (prompt === "/config") {
+    if (prompt === "/settings" || prompt === "/config") {
       setInput("");
-      appendLine("user", "/config");
+      appendLine("user", prompt);
       await explainCurrentConfig();
       return;
     }
@@ -9817,16 +10201,17 @@ export default function App() {
         } else {
           await speakVoiceText(text, prompt);
         }
-      } else if (rest === "stage") {
+      } else if (rest === "stage" || rest === "prepare") {
         appendLine("user", prompt);
         stageVoiceSpeak();
-      } else if (rest.startsWith("stage ")) {
+      } else if (rest.startsWith("stage ") || rest.startsWith("prepare ")) {
         appendLine("user", prompt);
-        stageVoiceSpeak(rest.slice("stage ".length).trim());
+        const prefix = rest.startsWith("stage ") ? "stage " : "prepare ";
+        stageVoiceSpeak(rest.slice(prefix.length).trim());
       } else {
         appendLine(
           "error",
-          "Voice shortcut needs status, capture, stop, transcribe, speak, or stage.",
+          "Voice shortcut needs status, capture, stop, transcribe, speak, or prepare.",
         );
       }
       return;
@@ -9891,11 +10276,9 @@ export default function App() {
           if (parsed.confirmed) {
             await deleteCompactionFromOps(parsed.id, true);
           } else {
-            appendJson("Compaction delete confirmation", {
-              pending_action: "delete_compaction",
-              compaction_id: parsed.id,
-              confirm_command: `/compactions delete ${parsed.id} --confirm`,
-            });
+            appendEvent(
+              `Compaction delete pending: ${parsed.id}. Confirm with /compactions delete ${parsed.id} --confirm.`,
+            );
           }
         }
       } else {
@@ -9944,9 +10327,9 @@ export default function App() {
         if (parsed) {
           await reviewMemoryAccess(parsed.topics, parsed.agents);
         }
-      } else if (command === "backends") {
+      } else if (command === "backends" || command === "storage") {
         await reviewMemoryBackends();
-      } else if (command === "probe") {
+      } else if (command === "probe" || command === "check") {
         const parsed = parseMemoryProbeShortcut(args);
         if (parsed) {
           await probeMemoryBackend(parsed.backend, parsed.topics);
@@ -10040,7 +10423,7 @@ export default function App() {
       } else {
         appendLine(
           "error",
-          "Memory shortcut needs on, off, status, list, access, backends, probe, preview, create, generate, generate-conversation, generate-conv, generate-pending, classify, show, edit, delete, rm, rollback, export, import, or help.",
+          "Memory shortcut needs on, off, status, list, access, storage, check, preview, create, generate, generate-conversation, generate-conv, generate-pending, classify, show, edit, delete, rm, rollback, export, import, or help.",
         );
       }
       return;
@@ -10054,7 +10437,7 @@ export default function App() {
         await reviewIngestion();
       } else if (prompt === "/ingest help" || prompt === "/ingest --help") {
         appendLine("assistant", ingestShortcutHelpText());
-      } else if (prompt === "/ingest backends") {
+      } else if (prompt === "/ingest backends" || prompt === "/ingest readers") {
         await reviewIngestionBackends();
       } else if (prompt === "/ingest status" || prompt.startsWith("/ingest status ")) {
         if (prompt !== "/ingest status") {
@@ -10070,20 +10453,29 @@ export default function App() {
         if (parsed) {
           await ingestPathFromOps(parsed.target, parsed.options);
         }
-      } else if (prompt.startsWith("/ingest probe-source ")) {
+      } else if (
+        prompt.startsWith("/ingest check-source ") ||
+        prompt.startsWith("/ingest probe-source ")
+      ) {
+        const prefix = prompt.startsWith("/ingest check-source ")
+          ? "/ingest check-source "
+          : "/ingest probe-source ";
         const probe = parseIngestProbeSourceShortcut(
-          prompt.slice("/ingest probe-source ".length).trim(),
+          prompt.slice(prefix.length).trim(),
         );
         if (probe) {
           await probeIngestSourceFromOps(probe.path, probe.visionModel);
         }
       } else if (
+        prompt.startsWith("/ingest check-vision ") ||
         prompt.startsWith("/ingest probe-vision ") ||
         prompt.startsWith("/ingest probe ")
       ) {
-        const prefix = prompt.startsWith("/ingest probe-vision ")
-          ? "/ingest probe-vision "
-          : "/ingest probe ";
+        const prefix = prompt.startsWith("/ingest check-vision ")
+          ? "/ingest check-vision "
+          : prompt.startsWith("/ingest probe-vision ")
+            ? "/ingest probe-vision "
+            : "/ingest probe ";
         const probe = parseIngestProbeVisionShortcut(
           prompt.slice(prefix.length).trim(),
         );
@@ -10159,17 +10551,15 @@ export default function App() {
           if (parsed.confirmed) {
             await removeIngestFromOps(parsed.id, true);
           } else {
-            appendJson("Ingest delete confirmation", {
-              pending_action: "delete_ingestion_artifact",
-              artifact_id: parsed.id,
-              confirm_command: `/ingest delete ${parsed.id} --confirm`,
-            });
+            appendEvent(
+              `Ingest artifact delete pending: ${parsed.id}. Confirm with /ingest delete ${parsed.id} --confirm.`,
+            );
           }
         }
       } else {
         appendLine(
           "error",
-          "Ingest shortcut needs list, backends, status, add, probe-source, probe-vision, show, rerun, use, exclude, preview, review, delete, or help.",
+          "Ingest shortcut needs list, readers, status, add, check-source, check-vision, show, rerun, use, exclude, preview, review, delete, or help.",
         );
       }
       return;
@@ -10235,11 +10625,9 @@ export default function App() {
           if (parsed.confirmed) {
             await deleteGeneratedArtifactFromOps(parsed.id, true);
           } else {
-            appendJson("Artifact delete confirmation", {
-              pending_action: "delete_artifact",
-              artifact_id: parsed.id,
-              confirm_command: `/artifacts delete ${parsed.id} --confirm`,
-            });
+            appendEvent(
+              `Generated artifact delete pending: ${parsed.id}. Confirm with /artifacts delete ${parsed.id} --confirm.`,
+            );
           }
         }
       } else {
@@ -10302,11 +10690,9 @@ export default function App() {
           if (parsed.confirmed) {
             await setSkillQuarantine(command === "allow", parsed.id);
           } else {
-            appendJson("Skill confirmation", {
-              pending_action: `${command}_skill`,
-              skill_id: parsed.id,
-              confirm_command: `/skills ${command} ${parsed.id} --confirm`,
-            });
+            appendEvent(
+              `Skill ${command} pending: ${parsed.id}. Confirm with /skills ${command} ${parsed.id} --confirm.`,
+            );
           }
         }
       } else {
@@ -10340,7 +10726,7 @@ export default function App() {
           "assistant",
           [
             "/capabilities list",
-            "/capabilities doctor",
+            "/capabilities check",
             "/capabilities propose <tool|skill|agent|subagent> <name> <body> [--guidance <text>]",
             "/capabilities show <id>",
             "/capabilities export <id> <path>",
@@ -10351,7 +10737,7 @@ export default function App() {
             "/capability is accepted as an alias for /capabilities.",
           ].join("\n"),
         );
-      } else if (command === "doctor") {
+      } else if (command === "doctor" || command === "check") {
         await capabilityDoctorFromOps();
       } else if (command === "propose") {
         const proposeInput = rest.slice("propose".length).trim();
@@ -10393,11 +10779,9 @@ export default function App() {
           if (parsed.confirmed) {
             await reviewCapabilityDraft(command === "allow", parsed.id);
           } else {
-            appendJson("Capability draft confirmation", {
-              pending_action: `${command}_capability_draft`,
-              draft_id: parsed.id,
-              confirm_command: `/capabilities ${command} ${parsed.id} --confirm`,
-            });
+            appendEvent(
+              `Capability draft ${command} pending: ${parsed.id}. Confirm with /capabilities ${command} ${parsed.id} --confirm.`,
+            );
           }
         }
       } else if (command === "delete" || command === "rm") {
@@ -10406,17 +10790,15 @@ export default function App() {
           if (parsed.confirmed) {
             await deleteCapabilityFromOps(parsed.id, true);
           } else {
-            appendJson("Capability draft delete confirmation", {
-              pending_action: "delete_capability_draft",
-              draft_id: parsed.id,
-              confirm_command: `/capabilities delete ${parsed.id} --confirm`,
-            });
+            appendEvent(
+              `Capability draft delete pending: ${parsed.id}. Confirm with /capabilities delete ${parsed.id} --confirm.`,
+            );
           }
         }
       } else {
         appendLine(
           "error",
-          "Capabilities shortcut needs list, doctor, propose, show, export, import, allow, reject, delete, or help.",
+          "Capabilities shortcut needs list, check, propose, show, export, import, allow, reject, delete, or help.",
         );
       }
       return;
@@ -10436,7 +10818,7 @@ export default function App() {
         prompt === profilePrefix
           ? ""
           : prompt.slice(`${profilePrefix} `.length).trim();
-      if (!rest) {
+      if (!rest || rest === "list") {
         await listProfilesFromOps();
       } else if (rest === "help" || rest === "--help") {
         appendLine("assistant", profileShortcutHelpText());
@@ -10477,11 +10859,9 @@ export default function App() {
           if (parsed.confirmed) {
             await deleteProfileFromOps(parsed.id, true);
           } else {
-            appendJson("Profile delete confirmation", {
-              pending_action: "delete_profile",
-              profile_id: parsed.id,
-              confirm_command: `/profiles delete ${parsed.id} --confirm`,
-            });
+            appendEvent(
+              `Profile delete pending for ${parsed.id}; run /profiles delete ${parsed.id} --confirm.`,
+            );
           }
         }
       } else if (rest.startsWith("revoke ") || rest.startsWith("revoke-grant ")) {
@@ -10494,11 +10874,9 @@ export default function App() {
           if (parsed.confirmed) {
             await revokeProfileGrantFromOps(parsed.id, true);
           } else {
-            appendJson("Profile grant revoke confirmation", {
-              pending_action: "revoke_profile_grant",
-              grant_id: parsed.id,
-              confirm_command: `/profiles revoke ${parsed.id} --confirm`,
-            });
+            appendEvent(
+              `Profile grant revoke pending for ${parsed.id}; run /profiles revoke ${parsed.id} --confirm.`,
+            );
           }
         }
       } else if (rest.startsWith("grant ")) {
@@ -10528,6 +10906,7 @@ export default function App() {
     if (
       secretPrompt === "/secrets" ||
       secretPrompt === "/secrets backends" ||
+      secretPrompt === "/secrets storage" ||
       secretPrompt === "/secrets list" ||
       secretPrompt === "/secrets help" ||
       secretPrompt === "/secrets --help" ||
@@ -10542,7 +10921,7 @@ export default function App() {
       setInput("");
       setActiveSection("profiles");
       appendLine("user", prompt);
-      if (secretPrompt === "/secrets backends") {
+      if (secretPrompt === "/secrets backends" || secretPrompt === "/secrets storage") {
         await listSecretBackendsFromOps();
       } else if (secretPrompt === "/secrets help" || secretPrompt === "/secrets --help") {
         appendLine("assistant", secretShortcutHelpText());
@@ -10599,11 +10978,9 @@ export default function App() {
           if (parsed.confirmed) {
             await deleteSecretFromOps(parsed.id, true);
           } else {
-            appendJson("Secret delete confirmation", {
-              pending_action: "delete_secret",
-              secret_id: parsed.id,
-              confirm_command: `/secrets delete ${parsed.id} --confirm`,
-            });
+            appendEvent(
+              `Secret delete pending for ${parsed.id}; run /secrets delete ${parsed.id} --confirm.`,
+            );
           }
         }
       } else {
@@ -10649,11 +11026,9 @@ export default function App() {
         if (!path) {
           appendLine("error", "Bundles import shortcut needs a bundle path.");
         } else if (!confirmed) {
-          appendJson("Bundle import confirmation", {
-            pending_action: "import_bundle",
-            path,
-            confirm_command: `/bundles import ${path} --confirm`,
-          });
+          appendEvent(
+            `Bundle import pending for ${path}; run /bundles import ${path} --confirm.`,
+          );
         } else {
           await importBundleFromOps(path, true);
         }
@@ -10713,12 +11088,9 @@ export default function App() {
             await deletePromptByName(parsed.name, parsed.agentId, true);
           } else {
             const agentFlag = parsed.agentId ? ` --agent ${parsed.agentId}` : "";
-            appendJson("Prompt delete confirmation", {
-              pending_action: "delete_prompt",
-              name: parsed.name,
-              agent: parsed.agentId,
-              confirm_command: `/prompts delete ${parsed.name}${agentFlag} --confirm`,
-            });
+            appendEvent(
+              `Prompt delete pending: ${parsed.name} (${promptScopeLabel(parsed.agentId)}). Confirm with /prompts delete ${parsed.name}${agentFlag} --confirm.`,
+            );
           }
         }
       } else {
@@ -10741,11 +11113,15 @@ export default function App() {
       modelPrompt === "/models --help" ||
       modelPrompt === "/models providers" ||
       modelPrompt === "/models doctor" ||
+      modelPrompt === "/models check" ||
       modelPrompt === "/models provider-catalog" ||
       modelPrompt.startsWith("/models provider-catalog ") ||
+      modelPrompt === "/models capability-catalog" ||
+      modelPrompt.startsWith("/models capability-catalog ") ||
       modelPrompt === "/models metadata-catalog" ||
       modelPrompt.startsWith("/models metadata-catalog ") ||
       modelPrompt.startsWith("/models show ") ||
+      modelPrompt.startsWith("/models capabilities ") ||
       modelPrompt.startsWith("/models probe ") ||
       modelPrompt.startsWith("/models save ") ||
       modelPrompt === "/models save-current" ||
@@ -10763,7 +11139,7 @@ export default function App() {
         appendLine("assistant", modelShortcutHelpText());
       } else if (modelPrompt === "/models providers") {
         await listModelProvidersFromOps();
-      } else if (modelPrompt === "/models doctor") {
+      } else if (modelPrompt === "/models doctor" || modelPrompt === "/models check") {
         await modelDoctorFromOps();
       } else if (
         modelPrompt === "/models provider-catalog" ||
@@ -10791,11 +11167,9 @@ export default function App() {
           if (!path) {
             appendLine("error", "Provider catalog import shortcut needs a path.");
           } else if (!confirmed) {
-            appendJson("Provider catalog import confirmation", {
-              pending_action: "import_model_provider_catalog",
-              path,
-              confirm_command: `/models provider-catalog import ${path} --confirm`,
-            });
+            appendEvent(
+              `Provider catalog import pending for ${path}; run /models provider-catalog import ${path} --confirm.`,
+            );
           } else {
             await importModelProviderCatalogFromOps(path, true);
           }
@@ -10806,13 +11180,18 @@ export default function App() {
           );
         }
       } else if (
+        modelPrompt === "/models capability-catalog" ||
+        modelPrompt.startsWith("/models capability-catalog ") ||
         modelPrompt === "/models metadata-catalog" ||
         modelPrompt.startsWith("/models metadata-catalog ")
       ) {
+        const catalogCommand = modelPrompt.startsWith("/models capability-catalog")
+          ? "/models capability-catalog"
+          : "/models metadata-catalog";
         const rest =
-          modelPrompt === "/models metadata-catalog"
+          modelPrompt === catalogCommand
             ? ""
-            : modelPrompt.slice("/models metadata-catalog ".length).trim();
+            : modelPrompt.slice(`${catalogCommand} `.length).trim();
         if (!rest || rest === "show") {
           await showModelMetadataCatalogFromOps();
         } else if (rest === "help" || rest === "--help") {
@@ -10820,7 +11199,7 @@ export default function App() {
         } else if (rest.startsWith("export ")) {
           const path = rest.slice("export ".length).trim();
           if (!path) {
-            appendLine("error", "Metadata catalog export shortcut needs a path.");
+            appendLine("error", "Capability catalog export shortcut needs a path.");
           } else {
             await exportModelMetadataCatalogFromOps(path);
           }
@@ -10829,20 +11208,18 @@ export default function App() {
           const confirmed = args.includes("--confirm");
           const path = args.filter((arg) => arg !== "--confirm").join(" ").trim();
           if (!path) {
-            appendLine("error", "Metadata catalog import shortcut needs a path.");
+            appendLine("error", "Capability catalog import shortcut needs a path.");
           } else if (!confirmed) {
-            appendJson("Metadata catalog import confirmation", {
-              pending_action: "import_model_metadata_catalog",
-              path,
-              confirm_command: `/models metadata-catalog import ${path} --confirm`,
-            });
+            appendEvent(
+              `Capability catalog import pending for ${path}; run ${catalogCommand} import ${path} --confirm.`,
+            );
           } else {
             await importModelMetadataCatalogFromOps(path, true);
           }
         } else {
           appendLine(
             "error",
-            "Metadata catalog shortcut needs show, export, or import.",
+            "Capability catalog shortcut needs show, export, or import.",
           );
         }
       } else if (modelPrompt.startsWith("/models show ")) {
@@ -10852,10 +11229,16 @@ export default function App() {
         } else {
           await showModelFromOps(id);
         }
-      } else if (modelPrompt.startsWith("/models probe ")) {
-        const id = modelPrompt.slice("/models probe ".length).trim();
+      } else if (
+        modelPrompt.startsWith("/models capabilities ") ||
+        modelPrompt.startsWith("/models probe ")
+      ) {
+        const prefix = modelPrompt.startsWith("/models capabilities ")
+          ? "/models capabilities "
+          : "/models probe ";
+        const id = modelPrompt.slice(prefix.length).trim();
         if (!id) {
-          appendLine("error", "Models probe shortcut needs a model id.");
+          appendLine("error", "Model check shortcut needs a model id.");
         } else {
           await probeModelFromOps(id);
         }
@@ -10889,11 +11272,9 @@ export default function App() {
           if (parsed.confirmed) {
             await importModel(parsed.path);
           } else {
-            appendJson("Model import confirmation", {
-              pending_action: "import_model",
-              path: parsed.path,
-              confirm_command: `/models import ${parsed.path} --confirm`,
-            });
+            appendEvent(
+              `Model import pending for ${parsed.path}; run /models import ${parsed.path} --confirm.`,
+            );
           }
         }
       } else if (
@@ -10910,11 +11291,9 @@ export default function App() {
           if (parsed.confirmed) {
             await deleteModelFromOps(parsed.id, true);
           } else {
-            appendJson("Model delete confirmation", {
-              pending_action: "delete_model",
-              model_id: parsed.id,
-              confirm_command: `/models delete ${parsed.id} --confirm`,
-            });
+            appendEvent(
+              `Model delete pending: ${parsed.id}. Confirm with /models delete ${parsed.id} --confirm.`,
+            );
           }
         }
       }
@@ -10940,7 +11319,7 @@ export default function App() {
         await reviewAdapters();
       } else if (command === "help" || command === "--help") {
         appendLine("assistant", adapterShortcutHelpText());
-      } else if (command === "doctor") {
+      } else if (command === "doctor" || command === "check") {
         await adapterDoctorFromOps();
       } else if (command === "show") {
         if (args.length !== 1) {
@@ -10984,11 +11363,9 @@ export default function App() {
           if (parsed.confirmed) {
             await setAdapterQuarantine(true, parsed.id);
           } else {
-            appendJson("Adapter allow confirmation", {
-              pending_action: "allow_adapter",
-              adapter_id: parsed.id,
-              confirm_command: `/adapters allow ${parsed.id} --confirm`,
-            });
+            appendEvent(
+              `Adapter allow pending for ${parsed.id}; run /adapters allow ${parsed.id} --confirm.`,
+            );
           }
         }
       } else if (command === "quarantine") {
@@ -11048,7 +11425,7 @@ export default function App() {
       } else {
         appendLine(
           "error",
-          "Adapters shortcut needs list, doctor, show, inspect, import, import-manifest, export, install-skill, allow, quarantine, clawhub, or help.",
+          "Adapters shortcut needs list, check, show, inspect, import, import-manifest, export, install-skill, allow, quarantine, clawhub, or help.",
         );
       }
       return;
@@ -11087,7 +11464,7 @@ export default function App() {
         } else {
           const id = args[0] || selectedConversationShortcutId();
           if (!id) {
-            appendLine("error", "Conversation show shortcut needs a conversation id or selected Id.");
+            appendLine("error", "Conversation show shortcut needs a conversation id or selected Target.");
           } else {
             await showConversation(id);
           }
@@ -11100,7 +11477,7 @@ export default function App() {
           if (!id) {
             appendLine(
               "error",
-              "Conversation recover shortcut needs a conversation id or selected Id.",
+              "Conversation recover shortcut needs a conversation id or selected Target.",
             );
           } else {
             await recoverConversation(id);
@@ -11257,10 +11634,9 @@ export default function App() {
         if (ids.length !== 1) {
           appendLine("error", "Bridge delivery delete/rm shortcut needs one delivery id plus --confirm.");
         } else if (!confirmed) {
-          appendJson("Bridge delivery delete confirmation", {
-            id: ids[0],
-            confirm_command: `/bridge-deliveries delete ${ids[0]} --confirm`,
-          });
+          appendEvent(
+            `Bridge delivery delete pending: ${ids[0]}. Confirm with /bridge-deliveries delete ${ids[0]} --confirm.`,
+          );
         } else {
           await deleteBridgeDeliveryFromOps(ids[0], true);
         }
@@ -11316,23 +11692,12 @@ export default function App() {
             );
           } else {
             const scope = parsed.agentScope ? "agent" : "active_profile";
-            appendJson("Hook policy confirmation", {
-              pending_action: `${command}_hook`,
-              hook_id: parsed.hookId,
-              action: command,
-              scope,
-              agent_id: parsed.agentScope ? agentId.trim() || "fake-agent" : null,
-              effect: disabling
-                ? parsed.agentScope
-                  ? "future runs for this agent will use this agent-level hook policy"
-                  : "future runs in this active profile will skip this hook unless agent config overrides the list"
-                : parsed.agentScope
-                  ? "future runs for this agent can load this hook again unless another layer disables it"
-                  : "future runs in this active profile can load this hook again unless another layer disables it",
-              confirm_command: parsed.agentScope
-                ? `/hooks ${command} ${parsed.hookId} --agent --confirm`
-                : `/hooks ${command} ${parsed.hookId} --confirm`,
-            });
+            const confirmCommand = parsed.agentScope
+              ? `/hooks ${command} ${parsed.hookId} --agent --confirm`
+              : `/hooks ${command} ${parsed.hookId} --confirm`;
+            appendEvent(
+              `Hook ${command} pending for ${parsed.hookId} (${scope}); run ${confirmCommand}.`,
+            );
           }
         }
       } else {
@@ -11391,17 +11756,14 @@ export default function App() {
         try {
           const loaded = await loadTraceFor(runId);
           if (traceCommand === "summary") {
-            if (loaded.summary) {
-              appendJson("Trace summary", loaded.summary);
-            } else {
+            if (!loaded.summary) {
               appendLine("error", `Trace ${runId} has no events.`);
             }
           } else if (traceCommand === "tree") {
-            appendJson("Trace tree", loaded.tree);
+            // The compact tree event is emitted by loadTraceFor; exact JSON lives in the Run Tree panel.
           } else if (traceCommand === "hooks") {
             const plan = hookRemediationsFromEvents(loaded.events);
             appendEvent(`Trace hook review: ${plan.length} issue(s) for ${runId}.`);
-            appendJson("Trace hook review", plan);
           } else {
             appendLine(
               "assistant",
@@ -11600,10 +11962,9 @@ export default function App() {
         return;
       }
       if (!confirmed) {
-        appendJson("Batch delete confirmation", {
-          batch_id: ids[0],
-          confirm_command: `/batch delete ${ids[0]} --confirm`,
-        });
+        appendEvent(
+          `Batch delete pending: ${ids[0]}. Confirm with /batch delete ${ids[0]} --confirm.`,
+        );
         return;
       }
       setInput("");
@@ -11857,7 +12218,7 @@ export default function App() {
         }
         const output = await daemonJson<unknown>("/tool/shell", inputBody);
         captureDirectToolMetadata(output);
-        appendJson("Shell output", output);
+        recordDirectToolResult({ kind: "shell", name: "shell", payload: output });
         return;
       }
       const output = await invoke<unknown>("call_tool", {
@@ -11866,7 +12227,7 @@ export default function App() {
         options: { ...runtimeOptions(), enable_shell: true },
       });
       captureDirectToolMetadata(output);
-      appendJson("Shell output", output);
+      recordDirectToolResult({ kind: "shell", name: "shell", payload: output });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       captureRunIdFromError(msg);
@@ -11929,7 +12290,7 @@ export default function App() {
   }
 
   function voiceTriStateStatus(value: "" | "on" | "off") {
-    return value || "config";
+    return value || "default";
   }
 
   function voiceActivityLabel() {
@@ -11971,8 +12332,8 @@ export default function App() {
     };
   }
 
-  function appendVoiceStatus() {
-    appendJson("Voice status", {
+  function currentVoiceStatusReport() {
+    return {
       agent: activeAgentLabel(),
       agent_id: agentId.trim() || null,
       controls: currentVoiceControlStatus(),
@@ -11982,7 +12343,22 @@ export default function App() {
       output_artifact: voiceOutputArtifact,
       capture_preview_ready: Boolean(voicePreviewUrl),
       output_preview_ready: Boolean(voiceOutputPreviewUrl),
-    });
+    };
+  }
+
+  function voiceStatusSummary() {
+    return [
+      `Voice status: ${voiceActivityLabel()}`,
+      `input ${voiceTriStateStatus(voiceInputEnabled)} / ${voiceControlLabel(voiceInputBackend, "default")}`,
+      `output ${voiceTriStateStatus(voiceOutputEnabled)} / ${voiceControlLabel(voiceOutputBackend, "default")}`,
+      `capture ${voiceArtifactMetric(voiceCaptureArtifact)}`,
+      `speech ${voiceArtifactMetric(voiceOutputArtifact)}`,
+    ].join(", ");
+  }
+
+  function appendVoiceStatus() {
+    setVoiceStatusRequested(true);
+    appendEvent(voiceStatusSummary());
   }
 
   async function persistVoiceCapture(blob: Blob) {
@@ -12097,7 +12473,7 @@ export default function App() {
     }
     setOpsId("voice_speak");
     setOpsValue(previewJson({ text: resolvedText }));
-    appendEvent("voice_speak staged.");
+    appendEvent("voice_speak input prepared.");
   }
 
   function voiceSpeakText() {
@@ -12353,12 +12729,12 @@ export default function App() {
               }
             : snapshot,
         );
-        appendEvent(`Loaded tool parameters for manual call: ${stagedTool.id}`);
+        appendEvent(`Loaded tool parameters for tool call: ${stagedTool.id}`);
       }
-      appendEvent(`Tool staged for manual call: ${stagedTool.id}`);
+      appendEvent(`Tool prepared for tool call: ${stagedTool.id}`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      appendLine("error", `Tool staging failed: ${msg}`);
+      appendLine("error", `Tool preparation failed: ${msg}`);
     }
   }
 
@@ -12542,7 +12918,7 @@ export default function App() {
         );
         captureDirectToolMetadata(output);
         void refreshVoiceOutputFromToolOutput(output);
-        appendJson("Tool output", output);
+        recordDirectToolResult({ kind: "tool", name, payload: output });
         return output;
       }
       const output = await invoke<unknown>("call_tool", {
@@ -12555,7 +12931,7 @@ export default function App() {
       });
       captureDirectToolMetadata(output);
       void refreshVoiceOutputFromToolOutput(output);
-      appendJson("Tool output", output);
+      recordDirectToolResult({ kind: "tool", name, payload: output });
       return output;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -12718,6 +13094,7 @@ export default function App() {
           ? await daemonJson<CompactionRecord[]>("/compactions")
           : await invoke<CompactionRecord[]>("compaction_list");
       setCompactionRecords(records);
+      setCompactionLibraryListed(true);
       appendEvent(`Loaded ${records.length} compacted-context artifacts.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -12738,7 +13115,7 @@ export default function App() {
       setOpsId(record.id);
       setOpsValue(record.content);
       setCompactionRecords((records) => upsertCompactionRecord(records, record));
-      appendJson("Compaction", record);
+      appendEvent(`Compaction: ${record.id} loaded.`);
       return record;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -12802,7 +13179,11 @@ export default function App() {
       setCompactionRecords((records) => upsertCompactionRecord(records, record));
       setOpsId(record.id);
       setOpsValue(record.content);
-      appendJson("Compaction imported", record);
+      appendEvent(
+        `Imported compacted context ${record.id} from ${path} (~${estimateLocalTokens(
+          record.content,
+        )} tokens).`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Compaction import failed: ${msg}`);
@@ -12852,10 +13233,11 @@ export default function App() {
         transport === "daemon"
           ? await daemonJson<unknown>("/explain-config", runtimeOptions())
           : await invoke<unknown>("explain_config", { options: runtimeOptions() });
-      appendJson("Effective config", explanation);
+      setRuntimeSettingsResult(explanation);
+      appendEvent(`Runtime settings loaded: ${runtimeSettingsSummary(explanation)}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      appendLine("error", `Explain config failed: ${msg}`);
+      appendLine("error", `Show run settings failed: ${msg}`);
     }
   }
 
@@ -12866,7 +13248,7 @@ export default function App() {
           ? await daemonJson<ToolView[]>("/explain-tools", runtimeOptions())
           : await invoke<ToolView[]>("explain_tools", { options: runtimeOptions() });
       setVisibleTools(tools);
-      appendJson("Visible tools", tools);
+      appendEvent(`Visible tools loaded in Toolbox: ${tools.length}`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Explain tools failed: ${msg}`);
@@ -12880,8 +13262,8 @@ export default function App() {
           ? await daemonJson<MemoryRecord[]>("/memory")
           : await invoke<MemoryRecord[]>("memory_list");
       setMemoryRecords(records);
+      setMemoryAccessReport(null);
       appendEvent(`Memory records: ${records.length}`);
-      appendLine("assistant", JSON.stringify(records, null, 2));
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Memory review failed: ${msg}`);
@@ -12905,7 +13287,7 @@ export default function App() {
         appendLine("error", `Memory show failed: ${id} was not found.`);
         return;
       }
-      appendJson("Memory record", record);
+      appendEvent(`Memory record loaded: ${record.id} (${record.target}).`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Memory show failed: ${msg}`);
@@ -12921,6 +13303,7 @@ export default function App() {
           ? await daemonJson<MemoryAccessReport>("/memory/access", { topics, agents })
           : await invoke<MemoryAccessReport>("memory_access", { topics, agents });
       setMemoryRecords(report.records.map((entry) => entry.record));
+      setMemoryAccessReport(report);
       const reportAgents = report.agents ?? [];
       const agentScope = reportAgents.length
         ? `, agents: ${reportAgents.join(",")}`
@@ -12928,7 +13311,6 @@ export default function App() {
       appendEvent(
         `Memory access: ${report.local_records} local, ${report.granted_records} granted${agentScope}`,
       );
-      appendJson("Memory access", report);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Memory access failed: ${msg}`);
@@ -12942,10 +13324,10 @@ export default function App() {
           ? await daemonJson<MemoryBackendDescriptor[]>("/memory/backends")
           : await invoke<MemoryBackendDescriptor[]>("memory_backends");
       setMemoryBackends(backends);
-      appendJson("Memory backends", backends);
+      appendEvent(`Memory storage: ${backends.length} option(s) loaded.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      appendLine("error", `Memory backends failed: ${msg}`);
+      appendLine("error", `Memory storage review failed: ${msg}`);
     }
   }
 
@@ -12971,12 +13353,11 @@ export default function App() {
             });
       setMemoryBackendProbe(report);
       appendEvent(
-        `Memory backend ${report.backend}: ${report.ok ? "ok" : "failed"} (${report.matching_records}/${report.records})`,
+        `Memory storage ${report.backend}: ${report.ok ? "ok" : "failed"} (${report.matching_records}/${report.records})`,
       );
-      appendJson("Memory backend probe", report);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      appendLine("error", `Memory backend probe failed: ${msg}`);
+      appendLine("error", `Memory storage check failed: ${msg}`);
     }
   }
 
@@ -13061,8 +13442,8 @@ export default function App() {
           ? await daemonJson<SkillDoc[]>("/skills")
           : await invoke<SkillDoc[]>("skill_list");
       setSkillDocs(docs);
-      appendEvent(`Skills: ${docs.length}`);
-      appendJson("Skills", docs);
+      setSkillLibraryListed(true);
+      appendEvent(`Skills: ${docs.length} skill(s) loaded.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Skill review failed: ${msg}`);
@@ -13076,8 +13457,8 @@ export default function App() {
           ? await daemonJson<AgentSummary[]>("/agents")
           : await invoke<AgentSummary[]>("agent_list");
       setAgentConfigs(docs);
-      appendEvent(`Agents: ${docs.length}`);
-      appendJson("Agents", docs);
+      setAgentLibraryListed(true);
+      appendEvent(`Agents: ${docs.length} agent(s) loaded.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Agent review failed: ${msg}`);
@@ -13123,7 +13504,7 @@ export default function App() {
       if (options.applyToControls) {
         applyAgentConfigToControls(doc);
       }
-      appendJson("Agent", doc);
+      appendEvent(`Agent: ${doc.id} loaded.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Agent show failed: ${msg}`);
@@ -13152,6 +13533,7 @@ export default function App() {
     setInputCostPerMillion(numberControlValue(doc.input_cost_per_million));
     setOutputCostPerMillion(numberControlValue(doc.output_cost_per_million));
     setMaxToolCalls(numberControlValue(doc.max_tool_calls));
+    setClearMaxTokensBeforeCompaction(false);
     setMaxTokensBeforeCompaction(
       numberControlValue(doc.max_tokens_before_compaction),
     );
@@ -13360,7 +13742,7 @@ export default function App() {
           : await invoke<AgentConfigFile>("agent_save", { agent: doc });
       setAgentConfigs((docs) => upsertAgentConfig(docs, saved));
       setAgentId(saved.id);
-      appendJson("Agent saved", saved);
+      appendEvent(`Agent saved: ${saved.id}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Agent save failed: ${msg}`);
@@ -13387,7 +13769,7 @@ export default function App() {
       setAgentConfigs((docs) =>
         upsertAgentConfig(docs, withExistingAgentMetadata(docs, doc)),
       );
-      appendJson("Agent exported", { path, agent: doc });
+      appendEvent(`Agent exported: ${doc.id} to ${path}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Agent export failed: ${msg}`);
@@ -13408,7 +13790,7 @@ export default function App() {
           : await invoke<AgentConfigFile>("agent_import", { path });
       setAgentConfigs((docs) => upsertAgentConfig(docs, doc));
       setAgentId(doc.id);
-      appendJson("Agent imported", doc);
+      appendEvent(`Agent imported: ${doc.id} from ${path}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Agent import failed: ${msg}`);
@@ -13440,7 +13822,7 @@ export default function App() {
       if ((result as AgentDeleteResult | null)?.deleted === false) {
         appendLine(
           "event",
-          `No active-profile agent config was deleted for ${id}.`,
+          `No active-profile saved agent was deleted for ${id}.`,
         );
         return;
       }
@@ -13448,7 +13830,7 @@ export default function App() {
       if (agentId.trim() === id) {
         setAgentId("");
       }
-      appendJson("Agent deleted", result);
+      appendEvent(`Agent deleted: ${id}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Agent delete failed: ${msg}`);
@@ -13464,7 +13846,7 @@ export default function App() {
       setCurrentProfile(profile);
       setCurrentProfileError(null);
       setProfileSummaries((profiles) => upsertProfileSummary(profiles, profile));
-      appendJson("Current profile", profile);
+      appendEvent(`Current profile: ${profileSummaryEventLabel(profile)}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setCurrentProfileError(msg);
@@ -13479,8 +13861,7 @@ export default function App() {
           ? await daemonJson<ProfileSummary[]>("/profiles")
           : await invoke<ProfileSummary[]>("profile_list");
       setProfileSummaries(profiles);
-      appendEvent(`Profiles: ${profiles.length}`);
-      appendJson("Profiles", profiles);
+      appendEvent(`Profiles: ${profiles.length} profile(s) loaded.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Profile list failed: ${msg}`);
@@ -13499,7 +13880,7 @@ export default function App() {
       if (currentProfile?.id === profile.id) {
         setCurrentProfile(profile);
       }
-      appendJson("Profile", profile);
+      appendEvent(`Profile: ${profile.id} loaded.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Profile show failed: ${msg}`);
@@ -13520,7 +13901,7 @@ export default function App() {
           ? await daemonJson<ProfileSummary>("/profiles", { id, name })
           : await invoke<ProfileSummary>("profile_create", { id, name });
       setProfileSummaries((profiles) => upsertProfileSummary(profiles, profile));
-      appendJson("Profile created", profile);
+      appendEvent(`Profile created: ${profileSummaryEventLabel(profile)}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Profile create failed: ${msg}`);
@@ -13554,7 +13935,7 @@ export default function App() {
       if (currentProfile?.id === id) {
         setCurrentProfile(null);
       }
-      appendJson("Profile deleted", result);
+      appendEvent(deleteResultEventLabel("Profile", id, result));
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Profile delete failed: ${msg}`);
@@ -13574,8 +13955,7 @@ export default function App() {
               fromProfile: from_profile,
             });
       setProfileGrants(grants);
-      appendEvent(`Profile grants: ${grants.length}`);
-      appendJson("Profile grants", grants);
+      appendEvent(`Profile grants: ${grants.length} grant(s) loaded.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Profile grants failed: ${msg}`);
@@ -13602,7 +13982,7 @@ export default function App() {
     if (!isProfileGrantKind(kind) || typeof resource !== "string" || !resource.trim()) {
       appendLine(
         "error",
-        'Profile grant needs Value JSON like { "kind": "memory", "resource": "agent:critic" }.',
+        'Profile grant needs Payload JSON like { "kind": "memory", "resource": "agent:critic" }.',
       );
       return;
     }
@@ -13631,7 +14011,7 @@ export default function App() {
               resource,
             });
       setProfileGrants((grants) => upsertProfileGrant(grants, grant));
-      appendJson("Profile grant", grant);
+      appendEvent(`Profile grant created: ${profileGrantEventLabel(grant)}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Profile grant failed: ${msg}`);
@@ -13651,7 +14031,7 @@ export default function App() {
             )
           : await invoke<ProfileGrant>("profile_grant_revoke", { id });
       setProfileGrants((grants) => grants.filter((grant) => grant.id !== revoked.id));
-      appendJson("Profile grant revoked", revoked);
+      appendEvent(`Profile grant revoked: ${profileGrantEventLabel(revoked)}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Profile grant revoke failed: ${msg}`);
@@ -13665,10 +14045,10 @@ export default function App() {
           ? await daemonJson<SecretBackendDescriptor[]>("/secrets/backends")
           : await invoke<SecretBackendDescriptor[]>("secret_backend_list");
       setSecretBackends(backends);
-      appendJson("Secret backends", backends);
+      appendEvent(`Secret storage: ${backends.length} option(s) loaded.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      appendLine("error", `Secret backends failed: ${msg}`);
+      appendLine("error", `Secret storage review failed: ${msg}`);
     }
   }
 
@@ -13679,8 +14059,7 @@ export default function App() {
           ? await daemonJson<SecretRecord[]>("/secrets")
           : await invoke<SecretRecord[]>("secret_list");
       setSecretRecords(records);
-      appendEvent(`Secrets: ${records.length}`);
-      appendJson("Secrets", records);
+      appendEvent(`Secrets: ${records.length} record(s) loaded.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Secret list failed: ${msg}`);
@@ -13696,7 +14075,7 @@ export default function App() {
           ? await daemonJson<SecretRecord>(`/secrets/${encodeURIComponent(id)}`)
           : await invoke<SecretRecord>("secret_show", { id });
       setSecretRecords((records) => upsertSecretRecord(records, record));
-      appendJson("Secret", record);
+      appendEvent(`Secret loaded: ${secretRecordEventLabel(record)}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Secret show failed: ${msg}`);
@@ -13717,7 +14096,7 @@ export default function App() {
       setSecretRecords((records) => upsertSecretRecord(records, result.record));
       setSecretStatus(result as unknown as JsonValue);
       setOpsValue("");
-      appendJson("Secret stored", result);
+      appendEvent(`Secret stored: ${secretRecordEventLabel(result.record)}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Secret store failed: ${msg}`);
@@ -13739,7 +14118,7 @@ export default function App() {
       setSecretRecords((records) => upsertSecretRecord(records, result.record));
       setSecretStatus(result as unknown as JsonValue);
       setOpsValue("");
-      appendJson("Secret rotated", result);
+      appendEvent(`Secret rotated: ${secretRecordEventLabel(result.record)}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Secret rotate failed: ${msg}`);
@@ -13757,7 +14136,12 @@ export default function App() {
           : await invoke<JsonValue>("secret_delete", { id });
       setSecretRecords((records) => records.filter((record) => record.id !== id));
       setSecretStatus(result);
-      appendJson("Secret deleted", result);
+      const deleted = secretDeletedState(result);
+      appendEvent(
+        deleted
+          ? `Secret ${deleted.deleted ? "deleted" : "not found"}: ${deleted.id}.`
+          : `Secret delete completed: ${id}.`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Secret delete failed: ${msg}`);
@@ -13771,8 +14155,8 @@ export default function App() {
           ? await daemonJson<CapabilityDraft[]>("/capabilities")
           : await invoke<CapabilityDraft[]>("capability_list");
       setCapabilityDrafts(drafts);
-      appendEvent(`Capability drafts: ${drafts.length}`);
-      appendJson("Capability drafts", drafts);
+      setCapabilityDraftsListed(true);
+      appendEvent(`Capability drafts: ${drafts.length} draft(s) loaded.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Capability review failed: ${msg}`);
@@ -13787,12 +14171,11 @@ export default function App() {
           : await invoke<CapabilityDraftDoctorReport>("capability_doctor");
       setCapabilityDoctorReport(report);
       appendEvent(
-        `Capability doctor: ${report.status} (${report.review_needed_count} review needed)`,
+        `Capability health ${report.status}: ${report.review_needed_count}/${report.draft_count} review needed / ${report.adapter_pack_candidate_count} adapter / ${report.skill_candidate_count} skill / ${report.agent_candidate_count} agent / ${report.warnings.length} warnings`,
       );
-      appendJson("Capability doctor", report);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      appendLine("error", `Capability doctor failed: ${msg}`);
+      appendLine("error", `Capability health check failed: ${msg}`);
     }
   }
 
@@ -13832,7 +14215,9 @@ export default function App() {
             });
       setCapabilityDrafts((drafts) => upsertCapabilityDraft(drafts, draft));
       setCapabilityDoctorReport(null);
-      appendJson("Capability draft proposed", draft);
+      appendEvent(
+        `Capability draft proposed: ${draft.id} (${draft.kind}, ${draft.status}).`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Capability propose failed: ${msg}`);
@@ -13922,7 +14307,7 @@ export default function App() {
           ? await daemonJson<CapabilityDraft>(`/capabilities/${id}`)
           : await invoke<CapabilityDraft>("capability_show", { id });
       setCapabilityDrafts((drafts) => upsertCapabilityDraft(drafts, draft));
-      appendJson("Capability draft", draft);
+      appendEvent(`Capability draft: ${draft.id} loaded.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Capability show failed: ${msg}`);
@@ -13946,7 +14331,7 @@ export default function App() {
             })
           : await invoke<CapabilityDraft>("capability_export", { id, path });
       setCapabilityDrafts((drafts) => upsertCapabilityDraft(drafts, draft));
-      appendJson("Capability draft exported", draft);
+      appendEvent(`Capability draft exported: ${draft.id} to ${path}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Capability export failed: ${msg}`);
@@ -13963,7 +14348,9 @@ export default function App() {
           : await invoke<CapabilityDraft>("capability_import", { path });
       setCapabilityDrafts((drafts) => upsertCapabilityDraft(drafts, draft));
       setCapabilityDoctorReport(null);
-      appendJson("Capability draft imported", draft);
+      appendEvent(
+        `Capability draft imported: ${draft.id} (${draft.kind}, ${draft.status}).`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Capability import failed: ${msg}`);
@@ -13998,7 +14385,15 @@ export default function App() {
           upsertAdapterPackage(packages, adapterPackage),
         );
       }
-      appendJson(allow ? "Capability allowed" : "Capability rejected", result);
+      const agent = agentFromCapabilityReviewResult(result);
+      if (agent) {
+        setAgentConfigs((docs) =>
+          upsertAgentConfig(docs, withExistingAgentMetadata(docs, agent)),
+        );
+      }
+      appendEvent(
+        `Capability draft ${allow ? "allowed" : "rejected"}: ${draft.id} (${draft.kind}, ${draft.status}${capabilityReviewArtifactSummary(result)}).`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Capability review failed: ${msg}`);
@@ -14010,13 +14405,14 @@ export default function App() {
     if (!id) return;
     if (!confirmed && !confirmLocalChange(`Delete capability draft ${id}`)) return;
     try {
-      const result =
-        transport === "daemon"
-          ? await daemonJson<unknown>(`/capabilities/${id}/delete`, {})
-          : await invoke<unknown>("capability_delete", { id });
+      if (transport === "daemon") {
+        await daemonJson<unknown>(`/capabilities/${id}/delete`, {});
+      } else {
+        await invoke<unknown>("capability_delete", { id });
+      }
       setCapabilityDrafts((drafts) => drafts.filter((draft) => draft.id !== id));
       setCapabilityDoctorReport(null);
-      appendJson("Capability draft deleted", result);
+      appendEvent(`Capability draft deleted: ${id}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Capability delete failed: ${msg}`);
@@ -14128,6 +14524,7 @@ export default function App() {
             : await daemonJson<PromptDoc[]>("/prompts")
           : await invoke<PromptDoc[]>("prompt_list", { agentId: agent });
       setPromptDocs(prompts);
+      setPromptLibraryListed(true);
       appendEvent(`Saved prompts (${promptScopeLabel(agent)}): ${prompts.length}`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -14237,6 +14634,8 @@ export default function App() {
       ]);
       setConversationDocs(conversations);
       setConversationTree(tree);
+      setConversationLibraryListed(true);
+      setConversationUsageReport(null);
       setConversationDeletePlan(null);
       setConversationRecoveryPlan(null);
       appendEvent(
@@ -14258,9 +14657,12 @@ export default function App() {
     try {
       const conversation = await fetchConversation(id);
       setExpandedConversation(conversation);
+      setConversationUsageReport((report) =>
+        report?.conversation_id === conversation.conversation.id ? report : null,
+      );
       setOpsId(conversation.conversation.id);
       setConversationId(conversation.conversation.id);
-      appendJson("Conversation", conversation);
+      appendEvent(`Conversation loaded: ${conversationEventLabel(conversation)}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Conversation show failed: ${msg}`);
@@ -14273,7 +14675,10 @@ export default function App() {
   ) {
     try {
       const report = await fetchConversationUsage(id, range);
-      appendJson("Conversation usage", report);
+      setConversationUsageReport(report);
+      setActiveSection("conversations");
+      setOpsId(report.conversation_id);
+      setConversationId(report.conversation_id);
       appendEvent(conversationUsageSummary(report));
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -14311,7 +14716,6 @@ export default function App() {
       if (compactedContext) {
         setOpsValue(compactedContext);
       }
-      appendJson("Conversation recovery plan", plan);
       appendEvent(
         `Recovery settings applied: conversation ${suggested.conversation_id || plan.conversation_id}, ${plan.linked_compactions.length} compactions, ${plan.linked_memories.length} memories, ${plan.linked_generated_artifacts.length} generated artifacts, ${suggested.load_memory ? "memory on" : "memory off"}, ${compactedContext ? "compacted context on" : "no compacted context"}`,
       );
@@ -14348,10 +14752,9 @@ export default function App() {
       setExpandedConversation(conversation);
       setOpsId(conversation.conversation.id);
       setConversationId(conversation.conversation.id);
-      appendJson("Conversation policy", {
-        id: conversation.conversation.id,
-        policy: conversation.conversation.policy || {},
-      });
+      appendEvent(
+        `Conversation policy loaded for ${conversation.conversation.id}: ${conversationPolicySummary(conversation.conversation.policy)}.`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Conversation policy show failed: ${msg}`);
@@ -14362,8 +14765,12 @@ export default function App() {
     try {
       const doc = await setConversationPolicy(id, conversationPolicyFromContextControls());
       updateConversationDoc(doc);
-      appendJson("Conversation policy saved", doc);
-      appendEvent(`Conversation policy saved for ${doc.id}`);
+      setExpandedConversation({ conversation: doc, messages: doc.messages });
+      setOpsId(doc.id);
+      setConversationId(doc.id);
+      appendEvent(
+        `Conversation policy saved for ${doc.id}: ${conversationPolicySummary(doc.policy)}.`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Conversation policy save failed: ${msg}`);
@@ -14379,8 +14786,10 @@ export default function App() {
     try {
       const doc = await setConversationPolicy(id, {});
       updateConversationDoc(doc);
-      appendJson("Conversation policy cleared", doc);
-      appendEvent(`Conversation policy cleared for ${doc.id}`);
+      setExpandedConversation({ conversation: doc, messages: doc.messages });
+      setOpsId(doc.id);
+      setConversationId(doc.id);
+      appendEvent(`Conversation policy cleared for ${doc.id}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Conversation policy clear failed: ${msg}`);
@@ -14420,6 +14829,7 @@ export default function App() {
       setEnableCapabilityDrafts(policy.capability_drafts_enabled);
     }
     setCapabilityDraftGuidance(policy.capability_draft_guidance || "");
+    setClearMaxTokensBeforeCompaction(false);
     setMaxTokensBeforeCompaction(
       policy.max_tokens_before_compaction
         ? String(policy.max_tokens_before_compaction)
@@ -14479,7 +14889,7 @@ export default function App() {
               recursive,
             });
       setConversationDeletePlan(plan);
-      appendJson("Conversation delete plan", plan);
+      appendEvent(`Conversation delete plan: ${conversationDeletePlanLabel(plan)}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Conversation delete preview failed: ${msg}`);
@@ -14499,7 +14909,9 @@ export default function App() {
               recursive,
             });
       setConversationDeletePlan(plan);
-      appendJson("Conversation bulk delete plan", plan);
+      appendEvent(
+        `Conversation bulk delete plan: ${conversationDeletePlanLabel(plan)}.`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Conversation bulk delete preview failed: ${msg}`);
@@ -14525,6 +14937,7 @@ export default function App() {
     );
     setConversationTree((tree) => filterConversationTree(tree, deleted));
     setConversationDeletePlan(null);
+    setConversationDeleteResult(result);
   }
 
   async function deleteConversation(
@@ -14550,7 +14963,7 @@ export default function App() {
               recursive,
             });
       applyConversationDeleteResult(result);
-      appendJson("Conversation deleted", result);
+      appendEvent(`Conversation deleted: ${conversationDeleteResultLabel(result)}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Conversation delete failed: ${msg}`);
@@ -14582,7 +14995,7 @@ export default function App() {
               recursive,
             });
       applyConversationDeleteResult(result);
-      appendJson("Conversations deleted", result);
+      appendEvent(`Conversations deleted: ${conversationDeleteResultLabel(result)}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Conversation bulk delete failed: ${msg}`);
@@ -14610,7 +15023,9 @@ export default function App() {
               recursive,
             });
       setConversationDeletePlan(plan);
-      appendJson("Agent conversation delete plan", plan);
+      appendEvent(
+        `Agent conversation delete plan: ${conversationDeletePlanLabel(plan)}.`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Agent conversation delete preview failed: ${msg}`);
@@ -14647,7 +15062,9 @@ export default function App() {
               recursive,
             });
       applyConversationDeleteResult(result);
-      appendJson("Agent conversations deleted", result);
+      appendEvent(
+        `Agent conversations deleted: ${conversationDeleteResultLabel(result)}.`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Agent conversation delete failed: ${msg}`);
@@ -14670,10 +15087,8 @@ export default function App() {
       setExpandedConversation(expanded);
       setOpsId(expanded.conversation.id);
       setConversationId(expanded.conversation.id);
-      appendJson("Conversation message range", review);
-      appendEvent(
-        `Conversation range ${review.conversation_id} ${review.from}:${review.to} (${review.message_count} message(s)); side effects: ${review.linked_compactions.length} compactions, ${review.linked_memories.length} memories, ${review.linked_generated_artifacts.length} generated artifacts`,
-      );
+      setConversationRangeReview(review);
+      appendEvent(`Conversation range reviewed: ${conversationRangeReviewLabel(review)}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Conversation range preview failed: ${msg}`);
@@ -14737,7 +15152,10 @@ export default function App() {
       ]);
       const expanded = await fetchConversation(id);
       setExpandedConversation(expanded);
-      appendJson("Conversation message range deleted", result);
+      setConversationRangeDeleteResult(result);
+      appendEvent(
+        `Conversation range deleted: ${conversationRangeDeleteResultLabel(result)}.`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Conversation range delete failed: ${msg}`);
@@ -14752,7 +15170,6 @@ export default function App() {
           : await invoke<IngestionArtifact[]>("ingest_list");
       setIngestionArtifacts(artifacts);
       appendEvent(`Ingestion artifacts: ${artifacts.length}`);
-      appendLine("assistant", JSON.stringify(artifacts, null, 2));
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Ingestion review failed: ${msg}`);
@@ -14766,8 +15183,8 @@ export default function App() {
           ? await daemonJson<GeneratedArtifact[]>("/artifacts")
           : await invoke<GeneratedArtifact[]>("artifact_list");
       setGeneratedArtifacts(artifacts);
+      setGeneratedArtifactsListed(true);
       appendEvent(`Generated artifacts: ${artifacts.length}`);
-      appendLine("assistant", JSON.stringify(artifacts, null, 2));
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Artifact review failed: ${msg}`);
@@ -14781,7 +15198,7 @@ export default function App() {
     if (!format) return;
     const content = explicit?.content ?? opsValue;
     if (!content.trim()) {
-      appendLine("error", "Artifact generate needs content in Value or shortcut text.");
+      appendLine("error", "Artifact generate needs content in Payload or shortcut text.");
       return;
     }
     const input: ArtifactGenerateInput = {
@@ -14797,7 +15214,9 @@ export default function App() {
         upsertGeneratedArtifact(artifacts, artifact),
       );
       setOpsId(artifact.id);
-      appendJson("Generated artifact", artifact);
+      appendEvent(
+        `Generated artifact created: ${artifact.id} (${generatedArtifactFormatLabel(artifact.format)}, ${formatBytes(artifact.bytes)}).`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Artifact generate failed: ${msg}`);
@@ -14814,10 +15233,10 @@ export default function App() {
       if (!backends.some((backend) => backend.id === ingestBackend)) {
         setIngestBackend(backends[0]?.id ?? "local-v0");
       }
-      appendJson("Ingestion backends", backends);
+      appendEvent(`Source readers: ${backends.length} loaded.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      appendLine("error", `Ingestion backends failed: ${msg}`);
+      appendLine("error", `Source reader review failed: ${msg}`);
     }
   }
 
@@ -14959,7 +15378,6 @@ export default function App() {
       appendEvent(
         `Resume plan for ${plan.source_run_id}: event ${plan.selected_event_id}, agent ${plan.agent_id}, omitted ${plan.omitted_events}.`,
       );
-      appendJson("Resume plan", plan);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Resume plan failed: ${msg}`);
@@ -15061,6 +15479,7 @@ export default function App() {
       setLastRunId(runId);
       const next = await loadApprovalsForRun(runId);
       setApprovals(next);
+      setApprovalQueueReviewedRunId(runId);
       appendEvent(`Approvals for ${runId}: ${next.length}`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -15138,10 +15557,10 @@ export default function App() {
       setApprovals((items) =>
         upsertApprovalAssessment(items, approvalId, result.assessment),
       );
+      setApprovalAssessmentResult({ approvalId, runId, payload: result });
       appendEvent(
         `Approval assessment [${approvalId}] ${result.assessment.recommendation ?? result.assessment.status}`,
       );
-      appendJson("Approval assessment", result);
       const events = await fetchTraceEvents(runId);
       applyTraceEvents(events);
     } catch (err: unknown) {
@@ -15183,7 +15602,7 @@ export default function App() {
           );
           captureDirectToolMetadata(output);
           void refreshVoiceOutputFromToolOutput(output);
-          appendJson("Approved tool output", output);
+          setApprovalExecutionResult({ approvalId, runId, payload: output });
         }
       } else {
         await invoke("approval_decide", {
@@ -15203,7 +15622,7 @@ export default function App() {
           });
           captureDirectToolMetadata(output);
           void refreshVoiceOutputFromToolOutput(output);
-          appendJson("Approved tool output", output);
+          setApprovalExecutionResult({ approvalId, runId, payload: output });
         }
       }
       const next = await loadApprovalsForRun(runId);
@@ -15238,7 +15657,7 @@ export default function App() {
             });
       captureDirectToolMetadata(output);
       void refreshVoiceOutputFromToolOutput(output);
-      appendJson("Approved tool output", output);
+      setApprovalExecutionResult({ approvalId, runId, payload: output });
       const next = await loadApprovalsForRun(runId);
       setApprovals(next);
       appendEvent(`Executed approved action ${approvalId}`);
@@ -15285,7 +15704,10 @@ export default function App() {
               demo: "echo",
               options: runtimeOptions(),
             });
-      appendLine("assistant", JSON.stringify(summary, null, 2));
+      setBatchDetailResult(summary);
+      const batchId = batchPayloadId(summary);
+      if (batchId) setOpsId(batchId);
+      appendEvent(`Batch run completed: ${batchPayloadSummary(summary)}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Batch failed: ${msg}`);
@@ -15298,7 +15720,8 @@ export default function App() {
         transport === "daemon"
           ? await daemonJson<unknown>("/batches")
           : await invoke<unknown>("batch_list");
-      appendJson("Batches", batches);
+      setBatchListResult(batches);
+      appendEvent(`Batches loaded: ${batchPayloadSummary(batches, "batch list")}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Batch list failed: ${msg}`);
@@ -15311,7 +15734,9 @@ export default function App() {
         transport === "daemon"
           ? await daemonJson<unknown>(`/batches/${encodeURIComponent(batchId)}`)
           : await invoke<unknown>("batch_show", { batchId });
-      appendJson("Batch", batch);
+      setBatchDetailResult(batch);
+      setOpsId(batchId);
+      appendEvent(`Batch loaded: ${batchId} (${batchPayloadSummary(batch)}).`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Batch show failed: ${msg}`);
@@ -15324,7 +15749,7 @@ export default function App() {
         transport === "daemon"
           ? await daemonJson<unknown>(`/batches/${encodeURIComponent(batchId)}/delete`, {})
           : await invoke<unknown>("batch_delete", { batchId });
-      appendJson("Batch deleted", result);
+      appendEvent(deleteResultEventLabel("Batch", batchId, result));
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Batch delete failed: ${msg}`);
@@ -15351,7 +15776,10 @@ export default function App() {
               demo: "echo",
               options: runtimeOptions(),
             });
-      appendLine("assistant", JSON.stringify(summary, null, 2));
+      setBatchDetailResult(summary);
+      const resumedBatchId = batchPayloadId(summary) || batchId;
+      if (resumedBatchId) setOpsId(resumedBatchId);
+      appendEvent(`Batch resumed: ${batchPayloadSummary(summary)}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Batch resume failed: ${msg}`);
@@ -15365,8 +15793,8 @@ export default function App() {
           ? await daemonJson<AdapterPackage[]>("/adapters")
           : await invoke<AdapterPackage[]>("adapter_list");
       setAdapterPackages(packages);
-      appendEvent(`Adapter manifests: ${packages.length}`);
-      appendLine("assistant", JSON.stringify(packages, null, 2));
+      setAdapterLibraryListed(true);
+      appendEvent(`Adapters: ${packages.length}`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Adapter review failed: ${msg}`);
@@ -15380,10 +15808,12 @@ export default function App() {
           ? await daemonJson<AdapterDoctorReport>("/adapters/doctor")
           : await invoke<AdapterDoctorReport>("adapter_doctor");
       setAdapterDoctorReport(report);
-      appendJson("Adapter doctor", report);
+      appendEvent(
+        `Adapter health ${report.status}: ${report.ready_capability_count}/${report.executable_capability_count} executable ready / ${report.quarantined_package_count} quarantined / ${report.high_risk_finding_count} high risk`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      appendLine("error", `Adapter doctor failed: ${msg}`);
+      appendLine("error", `Adapter health check failed: ${msg}`);
     }
   }
 
@@ -15421,7 +15851,7 @@ export default function App() {
               topics,
             });
       setMemoryRecords((records) => upsertMemoryRecord(records, record));
-      appendJson("Memory created", record);
+      appendEvent(`Memory created: ${record.id} (${record.target}).`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Memory create failed: ${msg}`);
@@ -15476,7 +15906,7 @@ export default function App() {
       setMemoryRecords((current) =>
         records.reduce(upsertMemoryRecord, current),
       );
-      appendJson("Memory generated", records);
+      appendEvent(`Memory generated: ${records.length} record(s).`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Memory generate failed: ${msg}`);
@@ -15535,7 +15965,7 @@ export default function App() {
       setMemoryRecords((current) =>
         records.reduce(upsertMemoryRecord, current),
       );
-      appendJson("Conversation memory generated", records);
+      appendEvent(`Conversation memory generated: ${records.length} record(s).`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Conversation memory generation failed: ${msg}`);
@@ -15578,7 +16008,8 @@ export default function App() {
       setMemoryRecords((current) =>
         result.generated.reduce(upsertMemoryRecord, current),
       );
-      appendJson("Pending memory generated", result);
+      setMemoryPendingGenerationResult(result);
+      appendEvent(memoryPendingGenerationEventLabel(result));
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Pending memory generation failed: ${msg}`);
@@ -15621,7 +16052,8 @@ export default function App() {
       if (record) {
         setMemoryRecords((records) => upsertMemoryRecord(records, record));
       }
-      appendJson("Memory classified", result);
+      setMemoryClassificationResult(result);
+      appendEvent(memoryClassificationEventLabel(result));
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Memory classify failed: ${msg}`);
@@ -15638,7 +16070,7 @@ export default function App() {
           ? await daemonJson<MemoryRecord>(`/memory/${id}/edit`, { content })
           : await invoke<MemoryRecord>("memory_edit", { id, content });
       setMemoryRecords((records) => upsertMemoryRecord(records, record));
-      appendJson("Memory edited", record);
+      appendEvent(`Memory edited: ${record.id} (${record.target}).`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Memory edit failed: ${msg}`);
@@ -15685,7 +16117,7 @@ export default function App() {
           ? await daemonJson<MemoryRecord[]>("/memory")
           : await invoke<MemoryRecord[]>("memory_list");
       setMemoryRecords(records);
-      appendJson("Memory after rollback", records);
+      appendEvent(`Memory records refreshed after rollback: ${records.length}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine(
@@ -15705,17 +16137,18 @@ export default function App() {
     try {
       const result =
         transport === "daemon"
-          ? await daemonJson<unknown>("/memory/export", {
+          ? await daemonJson<MemoryExportResult>("/memory/export", {
               path: args.path,
               user: args.user,
               agent_id: args.agentId,
             })
-          : await invoke<unknown>("memory_export", {
+          : await invoke<MemoryExportResult>("memory_export", {
               path: args.path,
               user: args.user,
               agentId: args.agentId,
             });
-      appendJson("Memory exported", result);
+      setMemoryExportResult(result);
+      appendEvent(memoryExportEventLabel(result));
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Memory export failed: ${msg}`);
@@ -15751,7 +16184,7 @@ export default function App() {
               agentId: args.agentId,
             });
       setMemoryRecords((current) => records.reduce(upsertMemoryRecord, current));
-      appendJson("Memory imported", records);
+      appendEvent(`Memory imported: ${records.length} record(s).`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Memory import failed: ${msg}`);
@@ -15778,7 +16211,7 @@ export default function App() {
           ? await daemonJson<PromptDoc>("/prompts", { name, body, agent_id: agent })
           : await invoke<PromptDoc>("prompt_save", { name, body, agentId: agent });
       setPromptDocs((docs) => upsertPromptDoc(docs, prompt));
-      appendJson("Prompt saved", prompt);
+      appendEvent(`Prompt saved: ${prompt.name} (${promptScopeValue(prompt)}).`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Prompt save failed: ${msg}`);
@@ -15795,7 +16228,7 @@ export default function App() {
     try {
       const prompt = await fetchPrompt(name, agent);
       setPromptDocs((docs) => upsertPromptDoc(docs, prompt));
-      appendJson("Prompt", prompt);
+      appendEvent(`Prompt loaded: ${prompt.name} (${promptScopeValue(prompt)}).`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Prompt show failed: ${msg}`);
@@ -15878,7 +16311,9 @@ export default function App() {
             })
           : await invoke<PromptDoc>("prompt_export", { name, path, agentId: agent });
       setPromptDocs((docs) => upsertPromptDoc(docs, prompt));
-      appendJson("Prompt exported", { path, prompt });
+      appendEvent(
+        `Prompt exported: ${prompt.name} (${promptScopeValue(prompt)}) to ${path}.`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Prompt export failed: ${msg}`);
@@ -15904,7 +16339,9 @@ export default function App() {
               agentId: agentOverride ?? null,
             });
       setPromptDocs((docs) => upsertPromptDoc(docs, prompt));
-      appendJson("Prompt imported", prompt);
+      appendEvent(
+        `Prompt imported: ${prompt.name} (${promptScopeValue(prompt)}) from ${path}.`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Prompt import failed: ${msg}`);
@@ -15938,21 +16375,24 @@ export default function App() {
       return;
     }
     try {
-      const output =
-        transport === "daemon"
-          ? agent
-            ? await daemonJson<unknown>("/prompts/delete", { name, agent_id: agent })
-            : await daemonJson<unknown>(
-                `/prompts/${encodeURIComponent(name)}/delete`,
-                {},
-              )
-          : await invoke<unknown>("prompt_delete", { name, agentId: agent });
+      if (transport === "daemon") {
+        if (agent) {
+          await daemonJson<unknown>("/prompts/delete", { name, agent_id: agent });
+        } else {
+          await daemonJson<unknown>(
+            `/prompts/${encodeURIComponent(name)}/delete`,
+            {},
+          );
+        }
+      } else {
+        await invoke<unknown>("prompt_delete", { name, agentId: agent });
+      }
       setPromptDocs((docs) =>
         docs.filter(
           (prompt) => prompt.name !== name || (prompt.agent_id ?? null) !== agent,
         ),
       );
-      appendJson("Prompt deleted", output);
+      appendEvent(`Prompt deleted: ${name} (${promptScopeLabel(agent)}).`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Prompt delete failed: ${msg}`);
@@ -15966,7 +16406,8 @@ export default function App() {
           ? await daemonJson<SavedModelConfig[]>("/models")
           : await invoke<SavedModelConfig[]>("model_list");
       setModelConfigs(models);
-      appendJson("Models", models);
+      setModelLibraryListed(true);
+      appendEvent(`Models: ${models.length} model(s) loaded.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Model list failed: ${msg}`);
@@ -15996,7 +16437,7 @@ export default function App() {
   async function listModelProvidersFromOps() {
     const providers = await refreshModelProviderDescriptors();
     if (providers) {
-      appendJson("Model providers", providers);
+      appendEvent(`Model providers: ${providers.length} provider(s) loaded.`);
     }
   }
 
@@ -16007,10 +16448,12 @@ export default function App() {
           ? await daemonJson<ModelDoctorReport>("/models/doctor")
           : await invoke<ModelDoctorReport>("model_doctor");
       setModelDoctorReport(report);
-      appendJson("Model doctor", report);
+      appendEvent(
+        `Model health ${report.status}: ${report.saved_model_count} saved / ${report.provider_count} providers / ${report.warnings.length} warnings / ${report.errors.length} errors`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      appendLine("error", `Model doctor failed: ${msg}`);
+      appendLine("error", `Model health check failed: ${msg}`);
     }
   }
 
@@ -16020,7 +16463,8 @@ export default function App() {
         transport === "daemon"
           ? await daemonJson<ModelProviderCatalog | null>("/model-provider-catalog")
           : await invoke<ModelProviderCatalog | null>("model_provider_catalog_show");
-      appendJson("Model provider catalog", catalog);
+      setModelProviderCatalogResult(catalog);
+      appendEvent(`Provider catalog loaded: ${modelProviderCatalogLabel(catalog)}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Provider catalog show failed: ${msg}`);
@@ -16035,7 +16479,10 @@ export default function App() {
         transport === "daemon"
           ? await daemonJson<ModelProviderCatalog>("/model-provider-catalog/export", { path })
           : await invoke<ModelProviderCatalog>("model_provider_catalog_export", { path });
-      appendJson("Model provider catalog exported", catalog);
+      setModelProviderCatalogResult(catalog);
+      appendEvent(
+        `Provider catalog exported: ${modelProviderCatalogLabel(catalog)} to ${path}.`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Provider catalog export failed: ${msg}`);
@@ -16054,7 +16501,10 @@ export default function App() {
         transport === "daemon"
           ? await daemonJson<ModelProviderCatalog>("/model-provider-catalog/import", { path })
           : await invoke<ModelProviderCatalog>("model_provider_catalog_import", { path });
-      appendJson("Model provider catalog imported", catalog);
+      setModelProviderCatalogResult(catalog);
+      appendEvent(
+        `Provider catalog imported: ${modelProviderCatalogLabel(catalog)} from ${path}.`,
+      );
       void refreshModelProviderDescriptors(true);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -16068,25 +16518,29 @@ export default function App() {
         transport === "daemon"
           ? await daemonJson<ModelMetadataCatalog | null>("/model-metadata-catalog")
           : await invoke<ModelMetadataCatalog | null>("model_metadata_catalog_show");
-      appendJson("Model metadata catalog", catalog);
+      setModelMetadataCatalogResult(catalog);
+      appendEvent(`Capability catalog loaded: ${modelMetadataCatalogLabel(catalog)}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      appendLine("error", `Metadata catalog show failed: ${msg}`);
+      appendLine("error", `Capability catalog show failed: ${msg}`);
     }
   }
 
   async function exportModelMetadataCatalogFromOps(explicitPath?: string) {
-    const path = explicitPath?.trim() || requireOpsValue("Metadata catalog export");
+    const path = explicitPath?.trim() || requireOpsValue("Capability catalog export");
     if (!path) return;
     try {
       const catalog =
         transport === "daemon"
           ? await daemonJson<ModelMetadataCatalog>("/model-metadata-catalog/export", { path })
           : await invoke<ModelMetadataCatalog>("model_metadata_catalog_export", { path });
-      appendJson("Model metadata catalog exported", catalog);
+      setModelMetadataCatalogResult(catalog);
+      appendEvent(
+        `Capability catalog exported: ${modelMetadataCatalogLabel(catalog)} to ${path}.`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      appendLine("error", `Metadata catalog export failed: ${msg}`);
+      appendLine("error", `Capability catalog export failed: ${msg}`);
     }
   }
 
@@ -16094,18 +16548,21 @@ export default function App() {
     explicitPath?: string,
     confirmed = false,
   ) {
-    const path = explicitPath?.trim() || requireOpsValue("Metadata catalog import");
+    const path = explicitPath?.trim() || requireOpsValue("Capability catalog import");
     if (!path) return;
-    if (!confirmed && !confirmLocalChange(`Import metadata catalog ${path}`)) return;
+    if (!confirmed && !confirmLocalChange(`Import capability catalog ${path}`)) return;
     try {
       const catalog =
         transport === "daemon"
           ? await daemonJson<ModelMetadataCatalog>("/model-metadata-catalog/import", { path })
           : await invoke<ModelMetadataCatalog>("model_metadata_catalog_import", { path });
-      appendJson("Model metadata catalog imported", catalog);
+      setModelMetadataCatalogResult(catalog);
+      appendEvent(
+        `Capability catalog imported: ${modelMetadataCatalogLabel(catalog)} from ${path}.`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      appendLine("error", `Metadata catalog import failed: ${msg}`);
+      appendLine("error", `Capability catalog import failed: ${msg}`);
     }
   }
 
@@ -16119,7 +16576,7 @@ export default function App() {
           : await invoke<SavedModelConfig>("model_show", { id });
       setModelConfigs((docs) => upsertSavedModelConfig(docs, doc));
       applyModelConfigToControls(doc);
-      appendJson("Model", doc);
+      appendEvent(`Model: ${doc.id} loaded.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Model show failed: ${msg}`);
@@ -16218,6 +16675,10 @@ export default function App() {
     return options && isJsonRecord(options) ? Object.keys(options).sort() : [];
   }
 
+  function savedModelProviderLabel(doc: SavedModelConfig) {
+    return doc.provider?.trim() || "provider unknown";
+  }
+
   function currentModelModalities() {
     const modalities = parsedCategoryList(modelModalities);
     if (modalities.length) {
@@ -16245,17 +16706,20 @@ export default function App() {
   }
 
   async function probeModelFromOps(explicitId?: string) {
-    const id = explicitId ?? requireOpsId("Model probe");
+    const id = explicitId ?? requireOpsId("Model check");
     if (!id) return;
     try {
       const doc =
         transport === "daemon"
-          ? await daemonJson<unknown>(`/models/${encodeURIComponent(id)}/probe`)
-          : await invoke<unknown>("model_probe", { id });
-      appendJson("Model capability probe", doc);
+          ? await daemonJson<ModelCapabilityProbe>(
+              `/models/${encodeURIComponent(id)}/probe`,
+            )
+          : await invoke<ModelCapabilityProbe>("model_probe", { id });
+      setModelCapabilityProbe(doc);
+      appendEvent(`Model capability checked: ${modelCapabilityProbeLabel(doc)}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      appendLine("error", `Model probe failed: ${msg}`);
+      appendLine("error", `Model check failed: ${msg}`);
     }
   }
 
@@ -16275,7 +16739,7 @@ export default function App() {
           ? await daemonJson<SavedModelConfig>("/models", modelDoc)
           : await invoke<SavedModelConfig>("model_save", { model: modelDoc });
       setModelConfigs((docs) => upsertSavedModelConfig(docs, doc));
-      appendJson("Model saved", doc);
+      appendEvent(`Model saved: ${doc.id} (${savedModelProviderLabel(doc)}).`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Model save failed: ${msg}`);
@@ -16284,7 +16748,7 @@ export default function App() {
 
   async function saveCurrentModelFromControls() {
     if (provider === "fake") {
-      appendLine("error", "Choose a non-fake provider before saving model metadata.");
+      appendLine("error", "Choose a non-fake provider before saving model details.");
       return;
     }
     const id = model.trim() || defaultModelForProvider(provider);
@@ -16325,7 +16789,7 @@ export default function App() {
           ? await daemonJson<SavedModelConfig>("/models", modelDoc)
           : await invoke<SavedModelConfig>("model_save", { model: modelDoc });
       setModelConfigs((docs) => upsertSavedModelConfig(docs, doc));
-      appendJson("Model saved", doc);
+      appendEvent(`Model saved: ${doc.id} (${savedModelProviderLabel(doc)}).`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Model save failed: ${msg}`);
@@ -16344,9 +16808,10 @@ export default function App() {
     try {
       const doc =
         transport === "daemon"
-          ? await daemonJson<unknown>(`/models/${encodeURIComponent(id)}/export`, { path })
-          : await invoke<unknown>("model_export", { id, path });
-      appendJson("Model exported", doc);
+          ? await daemonJson<SavedModelConfig>(`/models/${encodeURIComponent(id)}/export`, { path })
+          : await invoke<SavedModelConfig>("model_export", { id, path });
+      setModelConfigs((docs) => upsertSavedModelConfig(docs, doc));
+      appendEvent(`Model exported: ${doc.id} (${savedModelProviderLabel(doc)}) to ${path}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Model export failed: ${msg}`);
@@ -16366,7 +16831,7 @@ export default function App() {
           ? await daemonJson<SavedModelConfig>("/models/import", { path })
           : await invoke<SavedModelConfig>("model_import", { path });
       setModelConfigs((docs) => upsertSavedModelConfig(docs, doc));
-      appendJson("Model imported", doc);
+      appendEvent(`Model imported: ${doc.id} (${savedModelProviderLabel(doc)}) from ${path}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Model import failed: ${msg}`);
@@ -16391,12 +16856,12 @@ export default function App() {
   }
 
   function modelMetadataFromControls(providerOptions: Record<string, unknown> | null) {
-    const parsed = parseJsonObject("Model metadata", modelMetadataJson.trim());
+    const parsed = parseJsonObject("Model details", modelMetadataJson.trim());
     if (!parsed) return null;
     const metadata = { ...parsed };
     const existingOptions = metadata.provider_options;
     if (existingOptions != null && !isUnknownRecord(existingOptions)) {
-      appendLine("error", "Model metadata.provider_options must be a JSON object.");
+      appendLine("error", "Model details provider_options must be a JSON object.");
       return null;
     }
     const mergedOptions: Record<string, unknown> = isUnknownRecord(existingOptions)
@@ -16479,7 +16944,10 @@ export default function App() {
           ? await daemonJson<unknown>(`/models/${encodeURIComponent(id)}/delete`, {})
           : await invoke<unknown>("model_delete", { id });
       setModelConfigs((docs) => docs.filter((doc) => doc.id !== id));
-      appendJson("Model deleted", output);
+      setModelCapabilityProbe((probe) =>
+        probe?.model_id === id ? null : probe,
+      );
+      appendEvent(deleteResultEventLabel("Model", id, output));
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Model delete failed: ${msg}`);
@@ -16495,7 +16963,9 @@ export default function App() {
           ? await daemonJson<SkillDoc>("/skills/import", { path })
           : await invoke<SkillDoc>("skill_import_openclaw", { path });
       setSkillDocs((docs) => upsertSkillDoc(docs, doc));
-      appendJson("Skill imported into quarantine", doc);
+      appendEvent(
+        `Skill imported: ${doc.id} from ${path} (${doc.quarantined ? "quarantined" : "allowed"}).`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Skill import failed: ${msg}`);
@@ -16511,7 +16981,9 @@ export default function App() {
           ? await daemonJson<SkillDoc>("/skills/import-doc", { path })
           : await invoke<SkillDoc>("skill_import_doc", { path });
       setSkillDocs((docs) => upsertSkillDoc(docs, doc));
-      appendJson("Skill document imported into quarantine", doc);
+      appendEvent(
+        `Skill document imported: ${doc.id} from ${path} (${doc.quarantined ? "quarantined" : "allowed"}).`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Skill document import failed: ${msg}`);
@@ -16527,7 +16999,7 @@ export default function App() {
           ? await daemonJson<SkillDoc>(`/skills/${id}`)
           : await invoke<SkillDoc>("skill_inspect", { id });
       setSkillDocs((docs) => upsertSkillDoc(docs, doc));
-      appendJson("Skill", doc);
+      appendEvent(`Skill: ${doc.id} loaded.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Skill show failed: ${msg}`);
@@ -16547,7 +17019,7 @@ export default function App() {
           ? await daemonJson<SkillDoc>(`/skills/${id}/export`, { path })
           : await invoke<SkillDoc>("skill_export", { id, path });
       setSkillDocs((docs) => upsertSkillDoc(docs, doc));
-      appendJson("Skill exported", doc);
+      appendEvent(`Skill exported: ${doc.id} to ${path}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Skill export failed: ${msg}`);
@@ -16569,7 +17041,9 @@ export default function App() {
               id,
             });
       setSkillDocs((docs) => upsertSkillDoc(docs, doc));
-      appendJson(allow ? "Skill allowed" : "Skill quarantined", doc);
+      appendEvent(
+        `Skill ${allow ? "allowed" : "quarantined"}: ${doc.id} (${doc.quarantined ? "quarantined" : "allowed"}).`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Skill update failed: ${msg}`);
@@ -16594,7 +17068,9 @@ export default function App() {
     try {
       const artifact = await ingestPath(path, backend, visionModel, guardrailModel);
       setIngestionArtifacts((artifacts) => upsertArtifact(artifacts, artifact));
-      appendJson("Ingestion artifact created", artifact);
+      appendEvent(
+        `Ingestion artifact created: ${artifact.id} (${artifact.backend}, sections ${artifact.sections.length}, findings ${artifact.findings.length}).`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Ingest failed: ${msg}`);
@@ -16636,10 +17112,11 @@ export default function App() {
               model,
             })
           : await invoke<ModelVisionProbe>("ingest_probe_vision", { path, model });
-      appendJson("Ingestion vision probe", probe);
+      setIngestionVisionProbe(probe);
+      appendEvent(`Ingest vision checked: ${ingestionVisionProbeLabel(probe)}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      appendLine("error", `Ingest vision probe failed: ${msg}`);
+      appendLine("error", `Ingest vision check failed: ${msg}`);
     }
   }
 
@@ -16648,7 +17125,7 @@ export default function App() {
     visionModel: string | null = ingestVisionModel.trim() || null,
   ) {
     if (!path.trim()) {
-      appendLine("error", "Ingest source probe needs a file path in Value.");
+      appendLine("error", "Ingest source check needs a file path in Payload.");
       return;
     }
     try {
@@ -16666,10 +17143,10 @@ export default function App() {
               visionModel,
             });
       setIngestionSourceProbe(probe);
-      appendJson("Ingestion source probe", probe);
+      appendEvent(`Ingest source checked: ${ingestionSourceProbeLabel(probe)}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      appendLine("error", `Ingest source probe failed: ${msg}`);
+      appendLine("error", `Ingest source check failed: ${msg}`);
     }
   }
 
@@ -16732,7 +17209,9 @@ export default function App() {
               agentId: agentId.trim() || null,
             });
       setIngestionArtifacts((artifacts) => upsertArtifact(artifacts, artifact));
-      appendJson(`Ingestion artifact rerun with ${backend}`, artifact);
+      appendEvent(
+        `Ingestion artifact rerun: ${artifact.id} (${artifact.backend}, sections ${artifact.sections.length}, findings ${artifact.findings.length}).`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Ingest rerun failed: ${msg}`);
@@ -16767,7 +17246,9 @@ export default function App() {
           ? await daemonJson<IngestionArtifact>(`/ingest/${id}`)
           : await invoke<IngestionArtifact>("ingest_show", { id });
       setIngestionArtifacts((artifacts) => upsertArtifact(artifacts, artifact));
-      appendJson("Ingestion artifact", artifact);
+      appendEvent(
+        `Ingestion artifact loaded: ${artifact.id} (${artifact.backend}, sections ${artifact.sections.length}, findings ${artifact.findings.length}).`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Ingest show failed: ${msg}`);
@@ -16806,7 +17287,9 @@ export default function App() {
               note,
             });
       setIngestionArtifacts((artifacts) => upsertArtifact(artifacts, artifact));
-      appendJson("Ingestion finding reviewed", artifact);
+      appendEvent(
+        `Ingestion finding reviewed: ${artifact.id} #${finding} ${decision}.`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Ingest review failed: ${msg}`);
@@ -16828,7 +17311,9 @@ export default function App() {
       setGeneratedArtifacts((artifacts) =>
         upsertGeneratedArtifact(artifacts, artifact),
       );
-      appendJson("Generated artifact", artifact);
+      appendEvent(
+        `Generated artifact loaded: ${artifact.id} (${generatedArtifactFormatLabel(artifact.format)}, ${formatBytes(artifact.bytes)}).`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Artifact show failed: ${msg}`);
@@ -17046,12 +17531,9 @@ export default function App() {
   }
 
   function showIngestContextStatus() {
-    appendJson("Ingestion context status", {
-      include_ingest: includeIngestIds,
-      included_count: includeIngestIds.length,
-      guardrail_mode: activeIngestionGuardrailMode(),
-      shortcut: "/ingest status",
-    });
+    appendEvent(
+      `Ingestion context: ${includeIngestIds.length} artifact${includeIngestIds.length === 1 ? "" : "s"} queued; guardrail ${activeIngestionGuardrailMode()}.`,
+    );
   }
 
   function toggleUnsafeIngest(checked: boolean) {
@@ -17086,7 +17568,7 @@ export default function App() {
     }
     setIngestionGuardrailMode(mode);
     setAllowUnsafeIngest(mode === "allow");
-    appendEvent(`Ingestion guardrail mode set to ${mode || "config"}.`);
+    appendEvent(`Ingestion guardrail mode set to ${mode || "default"}.`);
   }
 
   function clearIncludedIngest() {
@@ -17107,7 +17589,7 @@ export default function App() {
           ? await daemonJson<AdapterPackage>("/adapters/import", { path })
           : await invoke<AdapterPackage>("adapter_import", { path });
       setAdapterPackages((packages) => upsertAdapterPackage(packages, manifest));
-      appendJson("Adapter imported into quarantine", manifest);
+      appendEvent(`Adapter imported for review: ${adapterPackageEventLabel(manifest)}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Adapter import failed: ${msg}`);
@@ -17122,7 +17604,10 @@ export default function App() {
         transport === "daemon"
           ? await daemonJson<AdapterPackage>("/adapters/inspect", { path })
           : await invoke<AdapterPackage>("adapter_inspect", { path });
-      appendJson("Adapter source inspection", manifest);
+      setAdapterPackages((packages) => upsertAdapterPackage(packages, manifest));
+      appendEvent(
+        `Adapter source inspected: ${adapterPackageEventLabel(manifest)}.`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Adapter inspect failed: ${msg}`);
@@ -17130,7 +17615,7 @@ export default function App() {
   }
 
   async function importAdapterManifestFromOps(explicitPath?: string) {
-    const path = explicitPath ?? requireOpsValue("Adapter manifest import");
+    const path = explicitPath ?? requireOpsValue("Adapter package import");
     if (!path) return;
     try {
       const manifest =
@@ -17138,10 +17623,12 @@ export default function App() {
           ? await daemonJson<AdapterPackage>("/adapters/import-manifest", { path })
           : await invoke<AdapterPackage>("adapter_import_manifest", { path });
       setAdapterPackages((packages) => upsertAdapterPackage(packages, manifest));
-      appendJson("Adapter manifest imported into quarantine", manifest);
+      appendEvent(
+        `Adapter package imported for review: ${adapterPackageEventLabel(manifest)}.`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      appendLine("error", `Adapter manifest import failed: ${msg}`);
+      appendLine("error", `Adapter package import failed: ${msg}`);
     }
   }
 
@@ -17154,7 +17641,14 @@ export default function App() {
         transport === "daemon"
           ? await daemonJson<unknown>("/adapters/clawhub/search", { catalog, query })
           : await invoke<unknown>("adapter_clawhub_search", { catalog, query });
-      appendJson("ClawHub entries", entries);
+      const result: ClawHubResult = {
+        action: "search",
+        catalog,
+        query,
+        payload: entries,
+      };
+      setClawHubResult(result);
+      appendEvent(`ClawHub ${clawHubResultLabel(result)} from ${catalog}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `ClawHub search failed: ${msg}`);
@@ -17170,7 +17664,14 @@ export default function App() {
         transport === "daemon"
           ? await daemonJson<unknown>("/adapters/clawhub/inspect", { catalog, id })
           : await invoke<unknown>("adapter_clawhub_inspect", { catalog, id });
-      appendJson("ClawHub inspection", inspection);
+      const result: ClawHubResult = {
+        action: "inspect",
+        catalog,
+        id,
+        payload: inspection,
+      };
+      setClawHubResult(result);
+      appendEvent(`ClawHub ${clawHubResultLabel(result)} from ${catalog}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `ClawHub inspect failed: ${msg}`);
@@ -17186,7 +17687,14 @@ export default function App() {
         transport === "daemon"
           ? await daemonJson<unknown>("/adapters/clawhub/pin", { catalog, id })
           : await invoke<unknown>("adapter_clawhub_pin", { catalog, id });
-      appendJson("ClawHub pin", pin);
+      const result: ClawHubResult = {
+        action: "pin",
+        catalog,
+        id,
+        payload: pin,
+      };
+      setClawHubResult(result);
+      appendEvent(`ClawHub ${clawHubResultLabel(result)} from ${catalog}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `ClawHub pin failed: ${msg}`);
@@ -17203,7 +17711,9 @@ export default function App() {
           ? await daemonJson<AdapterPackage>("/adapters/clawhub/install", { catalog, id })
           : await invoke<AdapterPackage>("adapter_clawhub_install", { catalog, id });
       setAdapterPackages((packages) => upsertAdapterPackage(packages, manifest));
-      appendJson("ClawHub adapter installed into quarantine", manifest);
+      appendEvent(
+        `ClawHub adapter installed for review: ${adapterPackageEventLabel(manifest)}.`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `ClawHub install failed: ${msg}`);
@@ -17219,7 +17729,7 @@ export default function App() {
           ? await daemonJson<AdapterPackage>(`/adapters/${id}`)
           : await invoke<AdapterPackage>("adapter_show", { id });
       setAdapterPackages((packages) => upsertAdapterPackage(packages, manifest));
-      appendJson("Adapter manifest", manifest);
+      appendEvent(`Adapter package loaded: ${adapterPackageEventLabel(manifest)}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Adapter show failed: ${msg}`);
@@ -17239,7 +17749,7 @@ export default function App() {
           ? await daemonJson<AdapterPackage>(`/adapters/${id}/export`, { path })
           : await invoke<AdapterPackage>("adapter_export", { id, path });
       setAdapterPackages((packages) => upsertAdapterPackage(packages, manifest));
-      appendJson("Adapter manifest exported", manifest);
+      appendEvent(`Adapter package exported: ${adapterPackageEventLabel(manifest)} to ${path}.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Adapter export failed: ${msg}`);
@@ -17255,7 +17765,9 @@ export default function App() {
           ? await daemonJson<SkillDoc>(`/adapters/${id}/install-skill`, {})
           : await invoke<SkillDoc>("adapter_install_skill", { id });
       setSkillDocs((docs) => upsertSkillDoc(docs, doc));
-      appendJson("Adapter installed as quarantined skill", doc);
+      appendEvent(
+        `Adapter skill installed for review: ${doc.id} from ${id} (${skillReviewLabel(doc)}).`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Adapter skill install failed: ${msg}`);
@@ -17277,7 +17789,9 @@ export default function App() {
               { id },
             );
       setAdapterPackages((packages) => upsertAdapterPackage(packages, manifest));
-      appendJson(allow ? "Adapter allowed" : "Adapter quarantined", manifest);
+      appendEvent(
+        `Adapter ${allow ? "allowed" : "quarantined"}: ${adapterPackageEventLabel(manifest)}.`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Adapter update failed: ${msg}`);
@@ -17303,8 +17817,7 @@ export default function App() {
           ? await daemonJson<BundleManifest>("/bundles/export", { path })
           : await invoke<BundleManifest>("bundle_export", { path });
       setBundleStatus({ operation: "exported", path, manifest });
-      appendEvent(`${label}: ${path}`);
-      appendJson("Bundle manifest", manifest);
+      appendEvent(bundleEventLabel(label, path, manifest));
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Bundle export failed: ${msg}`);
@@ -17321,7 +17834,7 @@ export default function App() {
           ? await daemonJson<BundleManifest>("/bundles/import", { path })
           : await invoke<BundleManifest>("bundle_import", { path });
       setBundleStatus({ operation: "imported", path, manifest });
-      appendJson("Bundle imported", manifest);
+      appendEvent(bundleEventLabel("Bundle imported", path, manifest));
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Bundle import failed: ${msg}`);
@@ -17338,7 +17851,6 @@ export default function App() {
       appendEvent(
         `Storage report: ${formatBytes(report.total_bytes)}, ${report.total_files} files, ${report.total_directories} directories`,
       );
-      appendJson("Storage report", report);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Storage report failed: ${msg}`);
@@ -17367,7 +17879,7 @@ export default function App() {
               apply,
             });
       setStoragePruneResult(result);
-      appendJson(apply ? "Storage cache pruned" : "Storage cache prune plan", result);
+      appendEvent(storagePruneEventLabel(result));
       if (apply) {
         await storageReportFromOps();
       }
@@ -17379,16 +17891,16 @@ export default function App() {
 
   async function listBridgeDeliveriesFromOps() {
     if (transport !== "daemon") {
-      appendLine("error", "Bridge deliveries are available over daemon transport.");
+      appendLine("error", "Bridge deliveries need the local server connection.");
       return;
     }
     try {
       const result =
         await daemonJson<BridgeDeliveryListResponse>("/bridges/deliveries");
       const deliveries = result.deliveries ?? [];
+      setBridgeDeliveryListResult(result);
       setBridgeDeliveries(deliveries);
       appendEvent(`Bridge deliveries: ${deliveries.length} pending`);
-      appendJson("Bridge deliveries", result);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Bridge deliveries failed: ${msg}`);
@@ -17397,14 +17909,13 @@ export default function App() {
 
   async function bridgeStatusFromOps() {
     if (transport !== "daemon") {
-      appendLine("error", "Bridge status is available over daemon transport.");
+      appendLine("error", "Bridge status needs the local server connection.");
       return;
     }
     try {
       const result = await daemonJson<BridgeStatusResponse>("/bridges/status");
       setBridgeStatus(result);
       appendEvent(bridgeStatusEventSummary(result));
-      appendJson("Bridge status", result);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Bridge status failed: ${msg}`);
@@ -17415,7 +17926,7 @@ export default function App() {
     const id = explicitId ?? requireOpsId("Bridge delivery retry");
     if (!id) return;
     if (transport !== "daemon") {
-      appendLine("error", "Bridge delivery retry is available over daemon transport.");
+      appendLine("error", "Bridge delivery retry needs the local server connection.");
       return;
     }
     try {
@@ -17424,7 +17935,7 @@ export default function App() {
         {},
       );
       setBridgeDeliveryResult(result);
-      appendJson("Bridge delivery retry", result);
+      appendEvent(`Bridge delivery retry: ${bridgeRetrySummary(result)}`);
       await listBridgeDeliveriesFromOps();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -17436,7 +17947,7 @@ export default function App() {
     const id = explicitId ?? requireOpsId("Bridge delivery delete");
     if (!id) return;
     if (transport !== "daemon") {
-      appendLine("error", "Bridge delivery delete is available over daemon transport.");
+      appendLine("error", "Bridge delivery delete needs the local server connection.");
       return;
     }
     if (!confirmed && !confirmLocalChange(`Delete bridge delivery ${id}`)) return;
@@ -17446,7 +17957,7 @@ export default function App() {
         {},
       );
       setBridgeDeliveryResult(result);
-      appendJson("Bridge delivery delete", result);
+      appendEvent(`Bridge delivery delete: ${bridgeRetrySummary(result)}`);
       await listBridgeDeliveriesFromOps();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -17456,7 +17967,7 @@ export default function App() {
 
   async function retryAllBridgeDeliveriesFromOps() {
     if (transport !== "daemon") {
-      appendLine("error", "Bridge delivery retry is available over daemon transport.");
+      appendLine("error", "Bridge delivery retry needs the local server connection.");
       return;
     }
     try {
@@ -17465,7 +17976,7 @@ export default function App() {
         {},
       );
       setBridgeDeliveryResult(result);
-      appendJson("Bridge delivery retry all", result);
+      appendEvent(`Bridge delivery retry all: ${bridgeRetrySummary(result)}`);
       await listBridgeDeliveriesFromOps();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -17484,6 +17995,29 @@ export default function App() {
     setSlashCommandDismissed(false);
   }
 
+  function applyStarterPrompt(starter: StarterPrompt) {
+    if (starter.mode === "router") {
+      applyLowOverheadPreset("router");
+    } else if (starter.mode === "answer" || starter.mode === "workflow") {
+      setAgentMode(starter.mode);
+      setRawToolOutput(false);
+    }
+    updateComposerInput(starter.prompt);
+  }
+
+  function submitComposerPrimaryAction() {
+    const prompt = input.trim();
+    if (running) {
+      if (prompt.startsWith("/")) {
+        void submit();
+        return;
+      }
+      void guideLastRun();
+      return;
+    }
+    void submit();
+  }
+
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
@@ -17493,7 +18027,7 @@ export default function App() {
         }
         return;
       }
-      void submit();
+      submitComposerPrimaryAction();
       return;
     }
     if (slashCommandItems.length) {
@@ -17591,7 +18125,7 @@ export default function App() {
     }
     const delivery = jsonObject(record.delivery);
     if (delivery) {
-      return deliveryStatusLabel(delivery);
+      return deliveryStatusLabel(jsonObject(delivery.last_delivery) ?? delivery);
     }
     return deliveryStatusLabel(value);
   }
@@ -17742,6 +18276,13 @@ export default function App() {
             </div>
           </div>
         </div>
+        <ContextPreviewPayload
+          title="Result JSON"
+          meta={rawPayloadMeta(value)}
+          icon="conversation"
+        >
+          <pre>{previewJson(value)}</pre>
+        </ContextPreviewPayload>
       </div>
     );
   }
@@ -17749,7 +18290,7 @@ export default function App() {
   function configuredLabel(value: JsonValue | undefined, key = "configured") {
     const record = jsonObject(value);
     const configured = record?.[key];
-    return configured === true ? "configured" : configured === false ? "open" : "unknown";
+    return configured === true ? "protected" : configured === false ? "open" : "unknown";
   }
 
   function bridgeReadinessSummary(bridge: BridgeStatusRecord) {
@@ -17763,7 +18304,7 @@ export default function App() {
   }
 
   function bridgeAuthTone(bridge: BridgeStatusRecord): ContextReviewCard["tone"] {
-    return configuredLabel(bridge.auth) === "configured" ? "ok" : "warning";
+    return configuredLabel(bridge.auth) === "protected" ? "ok" : "warning";
   }
 
   function bridgeX402Label(bridge: BridgeStatusRecord) {
@@ -17812,7 +18353,7 @@ export default function App() {
     const summary = bridgeStatusSummary(status);
     return [
       `Bridge status: ${summary.bridgeCount} surfaces`,
-      `${summary.authConfigured} auth configured`,
+      `${summary.authConfigured} auth protected`,
       `${summary.x402Enabled} x402 enabled`,
       `${summary.runtimeOverrides} runtime overrides`,
       `delivery worker ${summary.workerEnabled ? "on" : "off"}`,
@@ -17874,10 +18415,10 @@ export default function App() {
   function storageQuotaStatus(report: StorageReport) {
     const quotaBytes = report.quota_bytes ?? null;
     if (quotaBytes === null) {
-      return "quota not configured";
+      return "no quota limit";
     }
     if (quotaBytes <= 0) {
-      return "quota 0 B configured";
+      return "0 B quota limit";
     }
     const remaining = report.quota_remaining_bytes ?? quotaBytes - report.total_bytes;
     const status = report.quota_exceeded ? "over quota" : "remaining";
@@ -17965,13 +18506,32 @@ export default function App() {
       .join(" / ");
   }
 
+  function storagePruneEventLabel(result: StorageRetentionResult) {
+    const action = result.dry_run ? "plan" : "result";
+    const files = result.dry_run
+      ? result.plan.total_files
+      : result.deleted_files;
+    const bytes = result.dry_run
+      ? result.plan.total_bytes
+      : result.deleted_bytes;
+    return `Storage cache prune ${action}: ${files} file(s), ${formatBytes(
+      bytes,
+    )}, ${result.plan.retention_days} day retention, ${
+      result.errors?.length ?? 0
+    } error(s).`;
+  }
+
   function formatCost(cost: number | null) {
     return cost === null ? "n/a" : `$${cost.toFixed(6)}`;
   }
 
   function stopRetentionLabel(mode: StopRetentionMode | null) {
-    if (mode === null) return "use configured stopped-context default";
+    if (mode === null) return "default stop behavior";
     return mode === "discard" ? "discard stopped context" : "summarise stopped context";
+  }
+
+  function stopRetentionActionLabel(mode: StopRetentionMode | null) {
+    return mode === null ? "use default stop behavior" : stopRetentionLabel(mode);
   }
 
   function parseStopRetentionMode(value: string): StopRetentionMode | "default" | null {
@@ -18053,6 +18613,65 @@ export default function App() {
       parts.push(`guidance ${previewText(policy.compaction_guidance, 80)}`);
     }
     return parts.length ? parts.join("; ") : "default policy";
+  }
+
+  function conversationEventLabel(conversation: ExpandedConversation) {
+    return `${conversation.conversation.id} (${conversation.messages.length} messages)`;
+  }
+
+  function conversationDeletePlanLabel(plan: ConversationDeletePlan) {
+    return `${plan.delete_count} conversation${
+      plan.delete_count === 1 ? "" : "s"
+    }${plan.recursive ? " recursively" : ""}; ${
+      plan.linked_compactions.length
+    } compactions, ${plan.linked_memories.length} memories, ${
+      plan.linked_generated_artifacts.length
+    } artifacts linked`;
+  }
+
+  function conversationDeleteResultLabel(result: ConversationDeleteResult) {
+    return `${result.deleted.length}/${result.planned.length} conversation${
+      result.planned.length === 1 ? "" : "s"
+    } deleted${result.recursive ? " recursively" : ""}; ${
+      result.deleted_compactions?.length ?? 0
+    } compactions, ${result.deleted_memories?.length ?? 0} memories, ${
+      result.deleted_artifacts?.length ?? 0
+    } artifacts removed`;
+  }
+
+  function conversationRangeReviewLabel(review: ConversationRangeReview) {
+    return `${review.conversation_id} ${review.from}:${review.to} (${
+      review.message_count
+    } message${review.message_count === 1 ? "" : "s"}); ${
+      review.linked_compactions.length
+    } compactions, ${review.linked_memories.length} memories, ${
+      review.linked_generated_artifacts.length
+    } generated artifacts linked`;
+  }
+
+  function conversationRangeDeleteResultLabel(
+    result: ConversationDeleteRangeResult,
+  ) {
+    return `${result.id} ${result.from}:${result.to} (${result.deleted_messages} message${
+      result.deleted_messages === 1 ? "" : "s"
+    } deleted); ${result.expanded_message_count} expanded messages remain`;
+  }
+
+  function conversationRangeReviewTone(
+    review: ConversationRangeReview,
+  ): ContextReviewCard["tone"] {
+    if (!review.deletable_by_delete_range) return "danger";
+    return review.warnings.length ? "warning" : "ok";
+  }
+
+  function conversationRangeDeleteSideEffectCount(
+    result: ConversationDeleteRangeResult,
+  ) {
+    return (
+      (result.deleted_compactions?.length ?? 0) +
+      (result.deleted_memories?.length ?? 0) +
+      (result.deleted_artifacts?.length ?? 0)
+    );
   }
 
   function conversationRecoverySummary(plan: ConversationRecoveryPlan) {
@@ -18293,6 +18912,7 @@ export default function App() {
   }
 
   function setAgentMode(mode: AgentMode) {
+    setClearMaxTokensBeforeCompaction(false);
     if (mode === "answer") {
       setMaxToolCalls("0");
       return;
@@ -18304,6 +18924,52 @@ export default function App() {
     if (mode === "workflow") {
       setMaxToolCalls("");
     }
+  }
+
+  function applyLowOverheadPreset(mode: "answer" | "router") {
+    setAgentMode(mode === "router" ? "action" : "answer");
+    setRawToolOutput(true);
+    setEnableShell(false);
+    setEnableSubagent(false);
+    setLoadMemory(false);
+    setLoadSkills(false);
+    setIncludeIngestIds([]);
+    setClearMaxTokensBeforeCompaction(true);
+    setMaxTokensBeforeCompaction("");
+    setMaxCompactionOutputTokens("");
+    setCompactionGuidance("");
+    setManualCompactedContext("");
+    setAllowUnsafeIngest(false);
+    setIngestionGuardrailMode("");
+    setEnablePromptRefinement(false);
+    setPromptRefinementAgentAwareness(false);
+    setPromptRefinementsJson("");
+  }
+
+  function activeRunModeLabel() {
+    if (simplePresetActive) return "Simple";
+    if (routerPresetActive) return "Router";
+    switch (agentMode) {
+      case "answer":
+        return "Answer";
+      case "action":
+        return "Action";
+      case "workflow":
+        return "Workflow";
+      case "custom":
+        return "Custom";
+      default:
+        return "Mode";
+    }
+  }
+
+  function activeRunModeHint() {
+    if (simplePresetActive) return "Fast answer, low overhead";
+    if (routerPresetActive) return "One exact tool result";
+    if (actionInterpreterActive) return "One tool, interpreted answer";
+    if (agentMode === "answer") return "No tool calls";
+    if (agentMode === "workflow") return `${CALLS_MAX}-call default`;
+    return `${effectiveMaxToolCalls} call budget`;
   }
 
   function runReadinessCards(): ContextReviewCard[] {
@@ -18343,7 +19009,7 @@ export default function App() {
           effectiveMaxToolCalls === 0
             ? "Answer only"
             : `${effectiveMaxToolCalls} calls max`,
-        detail: `tools ${toolVisibility || "config"}; skills ${skillVisibility || "config"}; ${remainingToolCalls} remaining now.`,
+        detail: `tools ${toolVisibility || "default"}; skills ${skillVisibility || "default"}; ${remainingToolCalls} remaining now.`,
         icon: "tools",
         tone:
           effectiveMaxToolCalls === 0
@@ -18366,7 +19032,7 @@ export default function App() {
       {
         title: "Context Sources",
         value: `${loadMemory ? "Memory on" : "Memory off"} / ${loadSkills ? "Skills on" : "Skills off"}`,
-        detail: `${memoryBackend.trim() || "default memory backend"}; ${manualCompactedContext.trim() ? "Compacted context active" : "No compacted context"}; ${hasConversationContext ? `conversation ${conversationId.trim()}` : "no conversation branch"}; ${includeIngestIds.length} ingest artifacts selected.`,
+        detail: `${memoryBackend.trim() || "default memory storage"}; ${manualCompactedContext.trim() ? "Compacted context active" : "No compacted context"}; ${hasConversationContext ? `conversation ${conversationId.trim()}` : "no conversation branch"}; ${includeIngestIds.length} ingest artifacts selected.`,
         icon: "context",
         tone:
           loadMemory || loadSkills || manualCompactedContext.trim() || hasConversationContext
@@ -18480,7 +19146,7 @@ export default function App() {
       },
       {
         title: "Cost",
-        value: hasCostMetadata ? "Metadata set" : "Unpriced",
+        value: hasCostMetadata ? "Cost details set" : "Unpriced",
         detail: `in ${inputCostPerMillion.trim() || "default"} / out ${outputCostPerMillion.trim() || "default"} $/M; ${modelPrivacyLevel.trim() || "privacy default"} / ${modelCostTier.trim() || "cost default"}.`,
         icon: "profile",
         tone: hasCostMetadata ? "ok" : "warning",
@@ -18523,7 +19189,7 @@ export default function App() {
 
   function memoryBackendSelectOptions() {
     const seen = new Set<string>();
-    const items = [{ id: "", label: "config default" }];
+    const items = [{ id: "", label: "default storage" }];
     const descriptors =
       memoryBackends.length > 0
         ? memoryBackends
@@ -18757,6 +19423,11 @@ export default function App() {
     return agentId.trim() || agentDisplayName(demo);
   }
 
+  function activeAgentStatusLabel() {
+    if (agentId.trim()) return activeAgentLabel();
+    return demo === "tool" ? "Default agent" : "Echo demo";
+  }
+
   function isSavedAgentConfig(doc: AgentConfigEntry): doc is AgentConfigFile {
     return "system_prompt" in doc;
   }
@@ -18975,14 +19646,26 @@ export default function App() {
     return [profile, ...rest].sort((a, b) => a.id.localeCompare(b.id));
   }
 
+  function profileSummaryEventLabel(profile: ProfileSummary) {
+    return `${profile.id} (${profile.name || "unnamed"})`;
+  }
+
   function upsertProfileGrant(grants: ProfileGrant[], grant: ProfileGrant) {
     const rest = grants.filter((item) => item.id !== grant.id);
     return [grant, ...rest].sort((a, b) => a.id.localeCompare(b.id));
   }
 
+  function profileGrantEventLabel(grant: ProfileGrant) {
+    return `${grant.from_profile} -> ${grant.to_profile} ${grant.kind}:${grant.resource}`;
+  }
+
   function upsertSecretRecord(records: SecretRecord[], record: SecretRecord) {
     const rest = records.filter((item) => item.id !== record.id);
     return [record, ...rest].sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  function secretRecordEventLabel(record: SecretRecord) {
+    return `${record.id} (${record.backend} v${record.current_version})`;
   }
 
   function isProfileGrantKind(value: unknown): value is ProfileGrantKind {
@@ -19027,6 +19710,56 @@ export default function App() {
     const quarantined = result.quarantined_tool;
     if (isUnknownRecord(quarantined)) return quarantined as AdapterPackage;
     return null;
+  }
+
+  function agentFromCapabilityReviewResult(result: CapabilityReviewResult) {
+    if (!isUnknownRecord(result) || !("draft" in result)) return null;
+    const promoted = result.promoted_agent;
+    if (
+      isUnknownRecord(promoted) &&
+      typeof promoted.id === "string" &&
+      typeof promoted.name === "string" &&
+      typeof promoted.system_prompt === "string"
+    ) {
+      return promoted as AgentConfigFile;
+    }
+    return null;
+  }
+
+  function capabilityReviewArtifactSummary(result: CapabilityReviewResult) {
+    if (!isUnknownRecord(result) || !("draft" in result)) return "";
+    const promotedSkill = result.promoted_skill;
+    if (isUnknownRecord(promotedSkill)) {
+      return capabilityReviewArtifactLabel("promoted skill", promotedSkill);
+    }
+    const quarantinedSkill = result.quarantined_skill;
+    if (isUnknownRecord(quarantinedSkill)) {
+      return capabilityReviewArtifactLabel("quarantined skill", quarantinedSkill);
+    }
+    const promotedAgent = result.promoted_agent;
+    if (isUnknownRecord(promotedAgent)) {
+      return capabilityReviewArtifactLabel("promoted agent", promotedAgent);
+    }
+    const promotedTool = result.promoted_tool;
+    if (isUnknownRecord(promotedTool)) {
+      return capabilityReviewArtifactLabel("promoted adapter package", promotedTool);
+    }
+    const quarantinedTool = result.quarantined_tool;
+    if (isUnknownRecord(quarantinedTool)) {
+      return capabilityReviewArtifactLabel(
+        "quarantined adapter package",
+        quarantinedTool,
+      );
+    }
+    return "";
+  }
+
+  function capabilityReviewArtifactLabel(
+    action: string,
+    artifact: Record<string, unknown>,
+  ) {
+    const id = typeof artifact.id === "string" ? artifact.id.trim() : "";
+    return id ? `; ${action} ${id}` : `; ${action}`;
   }
 
   function upsertAdapterPackage(
@@ -19086,10 +19819,44 @@ export default function App() {
     return assessment ? "neutral" : "warning";
   }
 
+  function approvalStatusClassForTone(tone: ContextReviewCard["tone"]) {
+    if (tone === "ok") return "approved";
+    if (tone === "danger") return "rejected";
+    return "pending";
+  }
+
   function approvalAssessmentLabel(approval: ApprovalRecord) {
     return approval.assessment?.recommendation ??
       approval.assessment?.status ??
       "not assessed";
+  }
+
+  function approvalAssessmentResultSummary(
+    result: ApprovalAssessmentResultRecord,
+  ) {
+    const assessment = result.payload.assessment;
+    const outcome = assessment.recommendation ?? assessment.status;
+    return `${outcome} by ${assessment.controller_agent}${
+      assessment.model ? ` via ${assessment.model}` : ""
+    }`;
+  }
+
+  function approvalExecutionDirectResult(result: ApprovalExecutionResultRecord) {
+    return {
+      kind: "tool" as const,
+      name: "approved",
+      payload: result.payload,
+    };
+  }
+
+  function approvalExecutionTone(
+    result: ApprovalExecutionResultRecord,
+  ): ContextReviewCard["tone"] {
+    return directToolTone(approvalExecutionDirectResult(result));
+  }
+
+  function approvalExecutionSummary(result: ApprovalExecutionResultRecord) {
+    return directToolResultSummary(approvalExecutionDirectResult(result));
   }
 
   function defaultCompactionPath(id: string) {
@@ -19191,6 +19958,20 @@ export default function App() {
     return "/tmp/model-metadata-catalog.json";
   }
 
+  function modelProviderCatalogLabel(catalog: ModelProviderCatalog | null) {
+    if (!catalog) return "no custom provider catalog";
+    return `${catalog.providers.length} provider${
+      catalog.providers.length === 1 ? "" : "s"
+    }${catalog.source ? ` from ${catalog.source}` : ""}`;
+  }
+
+  function modelMetadataCatalogLabel(catalog: ModelMetadataCatalog | null) {
+    if (!catalog) return "no custom capability catalog";
+    return `${catalog.models.length} model${catalog.models.length === 1 ? "" : "s"}${
+      catalog.source ? ` from ${catalog.source}` : ""
+    }`;
+  }
+
   function defaultMemoryExportPath(user: boolean, agent: string | null) {
     if (user) return "/tmp/memory-user.json";
     if (agent) return `/tmp/memory-agent-${generatedArtifactFileName(agent)}.json`;
@@ -19231,7 +20012,7 @@ export default function App() {
     }
     setOpsId(artifact.id);
     setIngestFindingIndex(String(index));
-    appendEvent(`Staged ingestion finding #${index} for ${artifact.id}.`);
+    appendEvent(`Prepared ingestion finding #${index} for ${artifact.id}.`);
   }
 
   function hasUnapprovedHighRiskFindings(artifact: IngestionArtifact) {
@@ -19251,6 +20032,41 @@ export default function App() {
       supported,
       blocked: probe.backends.length - supported,
     };
+  }
+
+  function ingestionSourceProbeLabel(probe: IngestionSourceProbeReport) {
+    const counts = ingestionSourceProbeCounts(probe);
+    const vision = probe.vision_model
+      ? `, vision ${probe.vision_model.model} ${
+          probe.vision_model.supported ? "supported" : "blocked"
+        }`
+      : "";
+    return `${fileName(probe.source)} ${probe.source_kind}, ${formatBytes(
+      probe.bytes,
+    )}, ${counts.ready} ready, ${counts.supported} supported, ${
+      counts.blocked
+    } blocked${vision}`;
+  }
+
+  function ingestionVisionProbeTone(
+    probe: ModelVisionProbe,
+  ): ContextReviewCard["tone"] {
+    const status = probe.status.toLowerCase();
+    if (
+      status.includes("error") ||
+      status.includes("fail") ||
+      status.includes("reject") ||
+      status.includes("block")
+    ) {
+      return "danger";
+    }
+    return "ok";
+  }
+
+  function ingestionVisionProbeLabel(probe: ModelVisionProbe) {
+    return `${fileName(probe.source)} ${probe.source_kind} via ${probe.model}: ${
+      probe.status
+    }, tokens ${probe.tokens_in}/${probe.tokens_out}`;
   }
 
   function ingestionSourceProbeTone(
@@ -19394,6 +20210,39 @@ export default function App() {
     return "ok";
   }
 
+  function adapterPackageEventLabel(adapterPackage: AdapterPackage) {
+    return `${adapterPackage.id} (${adapterPackage.adapter}; ${
+      adapterPackage.quarantined ? "quarantined" : "allowed"
+    })`;
+  }
+
+  function clawHubActionLabel(action: ClawHubResult["action"]) {
+    if (action === "inspect") return "Inspection";
+    if (action === "pin") return "Digest pin";
+    return "Search";
+  }
+
+  function clawHubPayloadSummary(payload: unknown) {
+    if (Array.isArray(payload)) {
+      return `${payload.length} entr${payload.length === 1 ? "y" : "ies"}`;
+    }
+    if (isUnknownRecord(payload)) {
+      if (typeof payload.id === "string") return payload.id;
+      if (Array.isArray(payload.entries)) {
+        return `${payload.entries.length} entr${payload.entries.length === 1 ? "y" : "ies"}`;
+      }
+      const keys = Object.keys(payload);
+      return `${keys.length} field${keys.length === 1 ? "" : "s"}`;
+    }
+    return "payload";
+  }
+
+  function clawHubResultLabel(result: ClawHubResult) {
+    const target = result.id ? ` ${result.id}` : "";
+    const query = result.query ? ` (${result.query})` : "";
+    return `${clawHubActionLabel(result.action)}${target}${query}: ${clawHubPayloadSummary(result.payload)}`;
+  }
+
   function adapterFindingSeverityTone(
     severity: AdapterPackage["findings"][number]["severity"],
   ): ContextReviewCard["tone"] {
@@ -19457,6 +20306,48 @@ export default function App() {
     return record.classification?.tasks?.length || record.topics?.length
       ? "ok"
       : "neutral";
+  }
+
+  function memoryPendingGenerationTone(
+    result: MemoryGeneratePendingResult,
+  ): ContextReviewCard["tone"] {
+    if (result.errors.length) return "danger";
+    if (result.policy_skipped) return "warning";
+    return result.generated_count ? "ok" : "neutral";
+  }
+
+  function memoryPendingGenerationEventLabel(
+    result: MemoryGeneratePendingResult,
+  ) {
+    return `Pending memory generated: ${result.generated_count} record(s), ${result.attempted} attempt(s), ${result.up_to_date} up to date, ${result.policy_skipped} skipped, ${result.errors.length} error(s).`;
+  }
+
+  function memoryExportTone(result: MemoryExportResult): ContextReviewCard["tone"] {
+    return result.records.length ? "ok" : "neutral";
+  }
+
+  function memoryExportScopeLabel(result: MemoryExportResult) {
+    if (result.user) return "user";
+    return result.agent_id ? `agent ${result.agent_id}` : "profile";
+  }
+
+  function memoryExportEventLabel(result: MemoryExportResult) {
+    return `Memory exported: ${result.records.length} record(s) to ${fileName(
+      result.path,
+    )} (${memoryExportScopeLabel(result)}).`;
+  }
+
+  function memoryClassificationTone(
+    result: MemoryClassifyResult,
+  ): ContextReviewCard["tone"] {
+    return result.applied ? "ok" : "neutral";
+  }
+
+  function memoryClassificationEventLabel(result: MemoryClassifyResult) {
+    const topics = result.classification.topics?.length ?? 0;
+    const tasks = result.classification.tasks?.length ?? 0;
+    const mode = result.applied ? "applied" : "preview";
+    return `Memory classified: ${result.id} (${mode}, ${topics} topic(s), ${tasks} task(s)).`;
   }
 
   function secretBackendTone(
@@ -19568,12 +20459,12 @@ export default function App() {
   function sendContextPreviewToValue() {
     const payload = serializedContextPreview();
     if (!payload) {
-      appendLine("error", "Preview context before sending it to Value.");
+      appendLine("error", "Preview context before sending it to Payload.");
       return;
     }
     setOpsValue(payload);
-    setContextCopyStatus("Sent to Value");
-    appendEvent("Context preview JSON sent to Value.");
+    setContextCopyStatus("Sent to Payload");
+    appendEvent("Context preview JSON sent to Payload.");
   }
 
   function conversationRoleCount(role: string) {
@@ -19747,7 +20638,7 @@ export default function App() {
         title: "Memory",
         value: snapshot.loaded_memory.length
           ? `${snapshot.loaded_memory.length} fragments loaded`
-          : "No memory loaded",
+          : "Memory off",
         detail: snapshot.loaded_memory.length
           ? "Memory will be included in the next LLM context."
           : "Memory loading is off or no records are available.",
@@ -19810,6 +20701,40 @@ export default function App() {
       guidedOutputTools: tools.filter((tool) => tool.output_interpretation_guidance)
         .length,
     };
+  }
+
+  function sensitiveToolReadinessCards(
+    summary: ReturnType<typeof visibleToolCatalogSummary>,
+  ) {
+    return [
+      {
+        title: "Code execution",
+        value: summary.codeTools ? `${summary.codeTools} visible` : "off",
+        detail: summary.codeTools
+          ? "Python and TypeScript runners are visible for this run."
+          : "No code runner is visible for this run.",
+        icon: "code" as const,
+        tone: summary.codeTools ? ("warning" as const) : ("ok" as const),
+      },
+      {
+        title: "Payments",
+        value: summary.paymentTools ? `${summary.paymentTools} visible` : "off",
+        detail: summary.paymentTools
+          ? "x402 or wallet tools are visible and still approval-gated."
+          : "No payment or wallet tool is visible for this run.",
+        icon: "approval" as const,
+        tone: summary.paymentTools ? ("warning" as const) : ("ok" as const),
+      },
+      {
+        title: "Shell",
+        value: summary.shellTools ? `${summary.shellTools} visible` : "off",
+        detail: summary.shellTools
+          ? "Shell access is visible for this run."
+          : "Shell is not visible for this run.",
+        icon: "control" as const,
+        tone: summary.shellTools ? ("warning" as const) : ("ok" as const),
+      },
+    ];
   }
 
   function toolSensitivityLabel(tool: ToolView) {
@@ -19877,7 +20802,7 @@ export default function App() {
   function showOperationsPanel() {
     if (activeSection === "chat") {
       return (
-        !showSessionOverview ||
+        !welcomeTranscriptActive ||
         visibleTools !== null ||
         agentConfigs.length > 0 ||
         compactionRecords.length > 0 ||
@@ -19901,14 +20826,166 @@ export default function App() {
     return activeSection === "chat" ? "Toolbox" : "Actions";
   }
 
+  function taskInputCopy(): TaskInputCopy {
+    switch (activeSection) {
+      case "trace":
+        return {
+          title: "Run inputs",
+          detail: "Target run, replay prompt, or compare id",
+          payloadLabel: "Payload (replay)",
+          targetLabel: "Target (run)",
+          payloadPlaceholder: "replay prompt or hook review payload",
+          targetPlaceholder: "run id or comparison run id",
+          payloadSummary: "Replay prompt",
+          targetSummary: "Run target",
+        };
+      case "conversations":
+        return {
+          title: "Branch inputs",
+          detail: "Target branch and optional range JSON",
+          payloadLabel: "Payload (range)",
+          targetLabel: "Target (branch)",
+          payloadPlaceholder: '{ "from": 2, "to": 4 } or policy JSON',
+          targetPlaceholder: "conversation or branch id",
+          payloadSummary: "Range payload",
+          targetSummary: "Branch target",
+        };
+      case "profiles":
+        return {
+          title: "Profile inputs",
+          detail: "Target profile plus grant or secret payload",
+          payloadLabel: "Payload (grant)",
+          targetLabel: "Target (profile)",
+          payloadPlaceholder: "display name, grant JSON, secret value, or bundle path",
+          targetPlaceholder: "profile id or secret record",
+          payloadSummary: "Grant payload",
+          targetSummary: "Profile target",
+        };
+      case "memory":
+        return {
+          title: "Memory inputs",
+          detail: "Memory text, Target record, and scope",
+          payloadLabel: "Payload (memory)",
+          targetLabel: "Target (record)",
+          payloadPlaceholder: "memory text, edit body, topic, or import path",
+          targetPlaceholder: "memory record or storage id",
+          payloadSummary: "Memory payload",
+          targetSummary: "Record target",
+        };
+      case "skills":
+        return {
+          title: "Skill inputs",
+          detail: "Target skill or draft plus import payload",
+          payloadLabel: "Payload (import)",
+          targetLabel: "Target (skill)",
+          payloadPlaceholder: "skill path, draft body, or export path",
+          targetPlaceholder: "skill or capability draft id",
+          payloadSummary: "Import payload",
+          targetSummary: "Skill target",
+        };
+      case "prompts":
+        return {
+          title: "Prompt inputs",
+          detail: "Prompt name and reusable task body",
+          payloadLabel: "Payload (body)",
+          targetLabel: "Target (prompt)",
+          payloadPlaceholder: "prompt body, import path, or export path",
+          targetPlaceholder: "prompt name or saved model id",
+          payloadSummary: "Prompt body",
+          targetSummary: "Prompt target",
+        };
+      case "ingest":
+        return {
+          title: "Source inputs",
+          detail: "Source path, artifact Target, and guardrails",
+          payloadLabel: "Payload (source)",
+          targetLabel: "Target (artifact)",
+          payloadPlaceholder: "source file path or finding review JSON",
+          targetPlaceholder: "artifact id or finding id",
+          payloadSummary: "Source payload",
+          targetSummary: "Artifact target",
+        };
+      case "artifacts":
+        return {
+          title: "Artifact inputs",
+          detail: "Format Target and output content",
+          payloadLabel: "Payload (content)",
+          targetLabel: "Target (format)",
+          payloadPlaceholder: "output content, export path, or speech text",
+          targetPlaceholder: "artifact format or generated artifact id",
+          payloadSummary: "Artifact content",
+          targetSummary: "Artifact target",
+        };
+      case "adapters":
+        return {
+          title: "Adapter inputs",
+          detail: "Manifest path, package Target, or retention days",
+          payloadLabel: "Payload (path)",
+          targetLabel: "Target (package)",
+          payloadPlaceholder: "package path, bundle path, or retention days",
+          targetPlaceholder: "package, delivery, or adapter id",
+          payloadSummary: "Package path",
+          targetSummary: "Package target",
+        };
+      case "approvals":
+        return {
+          title: "Approval inputs",
+          detail: "Target run or decision payload",
+          payloadLabel: "Payload (decision)",
+          targetLabel: "Target (run)",
+          payloadPlaceholder: "decision note, unlock token, or resume payload",
+          targetPlaceholder: "run id or approval id",
+          payloadSummary: "Decision payload",
+          targetSummary: "Run target",
+        };
+      case "chat":
+      default:
+        return {
+          title: "Task inputs",
+          detail: "Target, Payload, and memory scope",
+          payloadLabel: "Payload",
+          targetLabel: "Target",
+          payloadPlaceholder: "tool payload, prompt body, file path, or JSON",
+          targetPlaceholder: "tool, run, prompt, context, or agent id",
+          payloadSummary: "Payload ready",
+          targetSummary: "Target ready",
+        };
+    }
+  }
+
   const conversationStats = conversationTreeStats(conversationTree);
-  const canGuideRun = Boolean(activeGuidanceRunId() && input.trim());
   const activeVisual = sectionVisual(activeSection);
-  const runStatusLabel = lastRunId ? `Run ${runLabel}` : "Ready for a new run";
+  const activeTaskInputCopy = taskInputCopy();
+  const showUserMemoryScopeToggle =
+    activeSection === "memory" || (activeSection === "chat" && opsUserMemory);
+  const activeOpsId = opsId.trim();
+  const activeOpsIsBatchTarget = isBatchTargetId(activeOpsId);
+  const stagedTargetSummary =
+    activeSection === "chat" && activeOpsIsBatchTarget
+      ? "Batch target"
+      : activeTaskInputCopy.targetSummary;
+  const stagedTaskInputSummary = [
+    opsValue.trim() ? activeTaskInputCopy.payloadSummary : null,
+    activeOpsId ? stagedTargetSummary : null,
+    showUserMemoryScopeToggle && opsUserMemory ? "User memory" : null,
+  ]
+    .filter(Boolean)
+    .join(" / ");
+  const taskInputSummaryDetail =
+    stagedTaskInputSummary || activeTaskInputCopy.detail;
+  const hasStagedTaskInputs = Boolean(stagedTaskInputSummary);
+  const runStatusLabel = running
+    ? "Running"
+    : lastRunId
+      ? `Run ${runLabel}`
+      : "Ready for a new run";
+  const hasRunStatus = running || Boolean(lastRunId);
   const topbarMeta =
     activeSection === "chat"
       ? runStatusLabel
-      : `${activeVisual.hint} / ${runStatusLabel}`;
+      : hasRunStatus
+        ? `${activeVisual.hint} / ${runStatusLabel}`
+        : activeVisual.hint;
   const showRunStatePill = running || Boolean(lastRunId);
   const showRunTelemetry =
     showRunStatePill ||
@@ -19925,6 +21002,7 @@ export default function App() {
     : "neutral";
   const showAdapterMaintenanceControls =
     Boolean(bridgeStatus) ||
+    Boolean(bridgeDeliveryListResult) ||
     bridgeDeliveries.length > 0 ||
     Boolean(bridgeDeliveryResult) ||
     Boolean(bundleStatus) ||
@@ -19936,6 +21014,7 @@ export default function App() {
   const showAdapterTransferImportAction = Boolean(opsValue.trim());
   const showAdapterTransferTargetActions = Boolean(opsId.trim());
   const showArtifactVoiceControls =
+    voiceStatusRequested ||
     recordingVoice ||
     voiceOutputBusy ||
     Boolean(voicePreviewUrl) ||
@@ -19956,14 +21035,22 @@ export default function App() {
   const showSkillTransferControls = Boolean(opsId.trim() || opsValue.trim());
   const showSkillTransferTargetActions = Boolean(opsId.trim());
   const showSkillTransferImportAction = Boolean(opsValue.trim());
-  const showCompactionTargetActions = Boolean(opsId.trim());
-  const showCompactionTransferControls = Boolean(opsId.trim() || opsValue.trim());
-  const showCompactionTransferTargetActions = Boolean(opsId.trim());
+  const showCompactionTargetActions =
+    Boolean(activeOpsId) && !activeOpsIsBatchTarget;
+  const showCompactionTransferControls = Boolean(
+    (activeOpsId && !activeOpsIsBatchTarget) || opsValue.trim(),
+  );
+  const showCompactionTransferTargetActions =
+    Boolean(activeOpsId) && !activeOpsIsBatchTarget;
   const showCompactionTransferImportAction = Boolean(opsValue.trim());
-  const showAgentTargetActions = Boolean(opsId.trim());
-  const showAgentSaveAction = Boolean(opsId.trim() && opsValue.trim());
-  const showAgentTransferControls = Boolean(opsId.trim() || opsValue.trim());
-  const showAgentTransferTargetActions = Boolean(opsId.trim());
+  const showAgentTargetActions = Boolean(activeOpsId) && !activeOpsIsBatchTarget;
+  const showAgentSaveAction =
+    Boolean(activeOpsId && opsValue.trim()) && !activeOpsIsBatchTarget;
+  const showAgentTransferControls = Boolean(
+    (activeOpsId && !activeOpsIsBatchTarget) || opsValue.trim(),
+  );
+  const showAgentTransferTargetActions =
+    Boolean(activeOpsId) && !activeOpsIsBatchTarget;
   const showAgentTransferImportAction = Boolean(opsValue.trim());
   const modelDoctorCardTone = modelDoctorReport
     ? modelDoctorTone(modelDoctorReport)
@@ -19976,7 +21063,11 @@ export default function App() {
     : 0;
   const showModelCatalogControls =
     Boolean(modelDoctorReport) ||
+    Boolean(modelCapabilityProbe) ||
     modelConfigs.length > 0 ||
+    modelProviderDescriptors.length > 0 ||
+    modelProviderCatalogResult !== undefined ||
+    modelMetadataCatalogResult !== undefined ||
     provider !== "fake";
   const showModelTargetActions = Boolean(opsId.trim());
   const showModelSaveAction = provider !== "fake";
@@ -19999,6 +21090,7 @@ export default function App() {
     Boolean(memoryBackend.trim()) ||
     Boolean(memoryTopics.trim()) ||
     memoryBackends.length > 0 ||
+    Boolean(memoryAccessReport) ||
     Boolean(memoryBackendProbe);
   const showMemoryCreateAction = Boolean(opsValue.trim());
   const showMemoryGenerateAction = Boolean(opsValue.trim());
@@ -20019,8 +21111,23 @@ export default function App() {
     conversationDocs.length > 0 ||
     conversationTree.length > 0 ||
     Boolean(expandedConversation) ||
+    Boolean(conversationUsageReport) ||
     Boolean(conversationDeletePlan) ||
     Boolean(conversationRecoveryPlan);
+  const conversationUsageIncompleteCount = conversationUsageReport
+    ? conversationUsageReport.missing_run_id_messages.length +
+      conversationUsageReport.missing_traces.length
+    : 0;
+  const conversationUsageTone: ContextReviewCard["tone"] =
+    conversationUsageIncompleteCount > 0 ? "warning" : "ok";
+  const conversationUsageRange = conversationUsageReport
+    ? conversationUsageReport.from === null ||
+      conversationUsageReport.from === undefined ||
+      conversationUsageReport.to === null ||
+      conversationUsageReport.to === undefined
+      ? "reported range"
+      : `${conversationUsageReport.from}:${conversationUsageReport.to}`
+    : "";
   const showConversationRangeCleanupAction =
     Boolean(opsId.trim()) && Boolean(opsValue.trim());
   const showConversationBranchCleanupActions = Boolean(opsId.trim());
@@ -20036,7 +21143,10 @@ export default function App() {
   const showProfileBundleImportAction = Boolean(opsValue.trim());
   const showSecretTargetActions = Boolean(opsId.trim());
   const showSecretWriteActions = Boolean(opsId.trim() && opsValue.trim());
-  const showToolCallByIdControls = Boolean(opsId.trim());
+  const showToolCallByIdControls =
+    Boolean(activeOpsId) && !activeOpsIsBatchTarget;
+  const showDormantToolCatalogPrompt =
+    !activeOpsIsBatchTarget && !showToolCallByIdControls;
   const runControlVisualSection: ActiveSection =
     activeSection === "approvals" ? "approvals" : "chat";
   const pendingApprovalCount = approvals.filter(
@@ -20060,16 +21170,45 @@ export default function App() {
   const showRunControlActions =
     running || Boolean(lastRunId) || approvals.length > 0;
   const showPostRunControlDisclosures =
-    activeSection === "approvals" || Boolean(lastRunId) || approvals.length > 0;
+    activeSection === "approvals" ||
+    Boolean(lastRunId) ||
+    approvals.length > 0 ||
+    Boolean(resumePlan);
   const showRunControlPanel =
     activeSection === "approvals" ||
     showRunControlActions ||
     showPostRunControlDisclosures;
   const loadedTracePrompt = traceOriginalPrompt(traceEvents);
+  const traceHookRemediations = hookRemediationsFromEvents(traceEvents);
+  const showTraceClearAction = !running && traceEvents.length > 0;
+  const showTraceClearCompareAction = !running && Boolean(traceCompareSummary);
+  const showTraceRecoveredPromptActions = !running && Boolean(loadedTracePrompt);
+  const showTraceReplayCleanupControls =
+    showTraceClearAction ||
+    showTraceClearCompareAction ||
+    showTraceRecoveredPromptActions;
+  const showTraceHookCatalogState = hookCatalog.length > 0 || Boolean(hookPolicy);
+  const showTraceHookCatalogActions = !running && !showTraceHookCatalogState;
   const showTraceToolsControls =
-    traceEvents.length > 0 ||
-    Boolean(traceCompareSummary) ||
-    Boolean(loadedTracePrompt);
+    showTraceReplayCleanupControls || showTraceHookCatalogActions;
+  const traceToolsSummaryTitle = showTraceReplayCleanupControls
+    ? showTraceHookCatalogActions
+      ? "Trace tools"
+      : "Replay actions"
+    : "Hook catalog";
+  const traceToolsSummaryDetail = showTraceReplayCleanupControls
+    ? showTraceHookCatalogActions
+      ? "Replay and hooks"
+      : "Recover and compare"
+    : "Hooks and policy";
+  const traceToolsSummaryIcon: IconName = showTraceReplayCleanupControls
+    ? "trace"
+    : "adapter";
+  const traceToolsSummaryHint = showTraceReplayCleanupControls
+    ? showTraceHookCatalogActions
+      ? "Show trace recovery and hook tools"
+      : "Show trace recovery and replay tools"
+    : "Show hook catalog and policy tools";
   const showTraceLoadAction = Boolean(lastRunId || opsId.trim());
   const showTraceCompareTargetField =
     Boolean(traceSummary) || Boolean(traceCompareRunId.trim());
@@ -20077,24 +21216,81 @@ export default function App() {
     Boolean(traceSummary) && Boolean(traceCompareRunId.trim() || opsId.trim());
   const trimmedApprovalController = approvalControllerAgent.trim();
   const approvalControllerValue = trimmedApprovalController || "manual";
-  const showSessionOverview =
+  const welcomeTranscriptActive =
     transcript.length === 1 &&
     transcript[0]?.kind === "event" &&
     transcript[0]?.text.startsWith("Welcome.");
+  const trimmedComposerInput = input.trim();
+  const hasDraftInput = Boolean(trimmedComposerInput);
+  const showSessionOverview = welcomeTranscriptActive && !hasDraftInput;
   const showChatSessionOverview = showSessionOverview && activeSection === "chat";
   const showWorkspaceSessionOverview =
     showSessionOverview && activeSection !== "chat";
-  const showInspectorSectionOverview = !showWorkspaceSessionOverview;
+  const showDraftFocus =
+    welcomeTranscriptActive && hasDraftInput && activeSection === "chat";
+  const hasChatToolboxContent =
+    activeSection === "chat" &&
+    (visibleTools !== null ||
+      agentConfigs.length > 0 ||
+      compactionRecords.length > 0 ||
+      compactionTransferStatus !== null ||
+      Boolean(opsId.trim() || opsValue.trim() || opsUserMemory));
+  const showActiveChatRunFocus = activeSection === "chat" && running;
+  const showInspectorSectionOverview =
+    !showWorkspaceSessionOverview &&
+    !showChatSessionOverview &&
+    !showDraftFocus &&
+    !showActiveChatRunFocus &&
+    !hasChatToolboxContent;
   const visibleTranscript = transcript.filter(
     (line, index) =>
       !(index === 0 && line.kind === "event" && line.text.startsWith("Welcome.")),
   );
-  const showComposerPreviewAction = input.trim().length > 0;
+  const composerPrimaryIsShortcut =
+    running && trimmedComposerInput.startsWith("/");
+  const composerPrimaryIsGuidance =
+    running && Boolean(activeGuidanceRunId()) && !composerPrimaryIsShortcut;
+  const composerPrimaryTitle = composerPrimaryIsShortcut
+    ? "Run shortcut"
+    : composerPrimaryIsGuidance
+      ? "Guide current run"
+      : "Ask Agent";
+  const composerPrimaryLabel = composerPrimaryIsShortcut
+    ? "Run"
+    : composerPrimaryIsGuidance
+      ? "Guide"
+      : "Ask";
+  const composerPrimaryIcon: IconName = composerPrimaryIsShortcut
+    ? "control"
+    : composerPrimaryIsGuidance
+      ? "prompt"
+      : "chat";
+  const showComposerPreviewAction = !running && trimmedComposerInput.length > 0;
+  const composerBatchCandidate = parseBatchLines(input);
+  const showComposerShellAction =
+    !running && enableShell && Boolean(trimmedComposerInput);
+  const showComposerBatchAction =
+    !running &&
+    !composerBatchCandidate.error &&
+    composerBatchCandidate.items.length > 1;
+  const showComposerResumeBatchAction = !running && activeOpsIsBatchTarget;
+  const showComposerResumeRunAction =
+    !running && Boolean(lastRunId) && !activeOpsId;
+  const composerAdvancedActionLabels = [
+    showComposerShellAction ? "Shell" : null,
+    showComposerBatchAction ? "Batch ready" : null,
+    showComposerResumeBatchAction ? "Resume batch" : null,
+    showComposerResumeRunAction ? "Resume run" : null,
+  ].filter((label): label is string => Boolean(label));
+  const composerAdvancedSummary =
+    composerAdvancedActionLabels.length === 1
+      ? composerAdvancedActionLabels[0]
+      : `${composerAdvancedActionLabels.length} actions`;
   const showComposerAdvancedControls =
-    showComposerPreviewAction ||
-    running ||
-    Boolean(lastRunId) ||
-    Boolean(opsId.trim());
+    showComposerShellAction ||
+    showComposerBatchAction ||
+    showComposerResumeBatchAction ||
+    showComposerResumeRunAction;
   const hasContextConfigurationSignal =
     Boolean(conversationId.trim()) ||
     Boolean(manualCompactedContext.trim()) ||
@@ -20112,13 +21308,86 @@ export default function App() {
     Boolean(allowedToolCategories.trim()) ||
     Boolean(allowedSkillCategories.trim()) ||
     agentMode !== "workflow";
+  const runSettingsCategoryLabels = [
+    enableShell || Boolean(maxToolCalls.trim()) ? "Tool access" : null,
+    Boolean(conversationId.trim()) ? "Branch" : null,
+    Boolean(maxTokensBeforeCompaction.trim()) ||
+    Boolean(maxCompactionOutputTokens.trim()) ||
+    Boolean(toolVisibility) ||
+    Boolean(skillVisibility) ||
+    Boolean(allowedTools.trim()) ||
+    Boolean(allowedToolCategories.trim()) ||
+    Boolean(allowedSkillCategories.trim())
+      ? "Rules"
+      : null,
+    enableSubagent ||
+    enableCapabilityDrafts ||
+    Boolean(maxSubagentDepth.trim()) ||
+    Boolean(maxRecursionDepth.trim()) ||
+    Boolean(capabilityDraftGuidance.trim()) ||
+    Boolean(disabledLifecycleHooks.trim()) ||
+    Boolean(toolOverridesJson.trim()) ||
+    Boolean(skillOverridesJson.trim())
+      ? "Delegation"
+      : null,
+    loadMemory || loadSkills ? "Knowledge" : null,
+    Boolean(memoryBackend.trim()) ||
+    Boolean(memoryModel.trim()) ||
+    Boolean(generateMemoryPolicy)
+      ? "Memory"
+      : null,
+    Boolean(voiceInputEnabled) ||
+    Boolean(voiceOutputEnabled) ||
+    Boolean(voiceInputBackend.trim()) ||
+    Boolean(voiceInputProvider.trim()) ||
+    Boolean(voiceInputModel.trim()) ||
+    Boolean(voiceOutputBackend.trim()) ||
+    Boolean(voiceTtsProvider.trim()) ||
+    Boolean(voiceTtsModel.trim()) ||
+    Boolean(voiceName.trim()) ||
+    Boolean(voiceTone.trim())
+      ? "Voice"
+      : null,
+    allowUnsafeIngest || Boolean(ingestionGuardrailMode) ? "Ingest" : null,
+    !requireApproval ||
+    Boolean(runApprovalControllerAgent.trim()) ||
+    Boolean(approvalControllerTools.trim()) ||
+    Boolean(approvalControllerCategories.trim())
+      ? "Approval"
+      : null,
+    rawToolOutput ||
+    Boolean(toolRoutingModel.trim()) ||
+    Boolean(toolOutputInterpretationModel.trim()) ||
+    Boolean(compactionGuidance.trim()) ||
+    enablePromptRefinement ||
+    promptRefinementAgentAwareness ||
+    Boolean(promptRefinementModel.trim()) ||
+    Boolean(promptRefinementInstructions.trim()) ||
+    Boolean(promptRefinementsJson.trim())
+      ? "Routing"
+      : null,
+  ].filter((label): label is string => Boolean(label));
+  const runSettingsSummary =
+    runSettingsCategoryLabels.length === 0
+      ? "Defaults"
+      : runSettingsCategoryLabels.length === 1
+        ? runSettingsCategoryLabels[0]
+        : `${runSettingsCategoryLabels.length} custom`;
   const showContextPreviewAction =
-    showComposerPreviewAction ||
     Boolean(contextPreview) ||
     hasContextConfigurationSignal;
+  const showContextPanelPreviewAction =
+    showContextPreviewAction && !showComposerPreviewAction;
   const showContextRunCheck =
-    showContextPreviewAction || running || Boolean(lastRunId);
-  const sessionOverviewCards = runReadinessCards().slice(1, 4);
+    showContextPreviewAction ||
+    running ||
+    Boolean(lastRunId);
+  const showChatContextPanel =
+    activeSection === "chat" &&
+    (!showChatSessionOverview ||
+      hasContextConfigurationSignal ||
+      Boolean(contextPreview));
+  const sessionOverviewCards = runReadinessCards().slice(2, 4);
 
   function sessionOverviewTitle(card: ContextReviewCard) {
     switch (card.title) {
@@ -20157,6 +21426,46 @@ export default function App() {
 
   function sessionOverviewDetail(card: ContextReviewCard) {
     return `${card.title}: ${card.value}. ${card.detail}`;
+  }
+
+  function runModeStatusName() {
+    if (simplePresetActive) return "Simple";
+    if (routerPresetActive) return "Router";
+    switch (agentMode) {
+      case "answer":
+        return "Answer";
+      case "action":
+        return "Action";
+      case "workflow":
+        return "Workflow";
+      case "custom":
+        return "Custom";
+    }
+  }
+
+  function runModeBudgetLabel() {
+    if (effectiveMaxToolCalls === 0) return "answer only";
+    if (effectiveMaxToolCalls === 1) return "1 action";
+    return `${effectiveMaxToolCalls} actions`;
+  }
+
+  function runModeStatusLabel() {
+    return `${runModeStatusName()} / ${runModeBudgetLabel()} / ${
+      rawToolOutput ? "exact output" : "reviewed output"
+    }`;
+  }
+
+  function runModeStatusTitle() {
+    return `Run mode: ${runModeStatusName()}. Tool-call budget: ${remainingToolCalls} remaining of ${effectiveMaxToolCalls}. Output: ${
+      rawToolOutput ? "exact tool results" : "interpreted tool results"
+    }.`;
+  }
+
+  function runModePillClass() {
+    if (!running || effectiveMaxToolCalls === 0) return "pill";
+    if (remainingToolCalls === 0) return "pill exhausted";
+    if (remainingToolCalls <= 1) return "pill warning";
+    return "pill";
   }
 
   return (
@@ -20211,9 +21520,13 @@ export default function App() {
             </div>
           </div>
           <div className="status-pills" style={sectionThemeStyle(activeSection)}>
-            <span className="pill" title="Active agent">
+            <span className="pill" title={`Active agent: ${activeAgentLabel()}`}>
               <AppIcon name="profile" />
-              <span>{activeAgentLabel()}</span>
+              <span>{activeAgentStatusLabel()}</span>
+            </span>
+            <span className={runModePillClass()} title={runModeStatusTitle()}>
+              <AppIcon name="tools" />
+              <span>{runModeStatusLabel()}</span>
             </span>
             {showRunStatePill ? (
               <span
@@ -20222,12 +21535,6 @@ export default function App() {
               >
                 <AppIcon name="approval" />
                 <span>{running ? "Running" : "Idle"}</span>
-              </span>
-            ) : null}
-            {rawToolOutput ? (
-              <span className="pill" title="Tool output mode">
-                <AppIcon name="artifact" />
-                <span>Raw output</span>
               </span>
             ) : null}
             {showRunTelemetry ? (
@@ -20275,7 +21582,7 @@ export default function App() {
                         : "starter-prompt"
                     }
                     title={starter.prompt}
-                    onClick={() => updateComposerInput(starter.prompt)}
+                    onClick={() => applyStarterPrompt(starter)}
                     disabled={running}
                     key={starter.title}
                   >
@@ -20294,21 +21601,43 @@ export default function App() {
                   <AgentOrchestrationVisual />
                 </div>
                 <div className="session-overview-grid">
-                  {sessionOverviewCards.map((card) => (
-                    <div
-                      className={`session-overview-card ${card.tone}`}
-                      title={sessionOverviewDetail(card)}
-                      key={card.title}
-                    >
-                      <span className="session-overview-icon" aria-hidden="true">
-                        <AppIcon name={card.icon} />
-                      </span>
-                      <div className="session-overview-copy">
-                        <span>{sessionOverviewTitle(card)}</span>
-                        <strong>{sessionOverviewValue(card)}</strong>
+                  {sessionOverviewCards.map((card) => {
+                    const content = (
+                      <>
+                        <span className="session-overview-icon" aria-hidden="true">
+                          <AppIcon name={card.icon} />
+                        </span>
+                        <span className="session-overview-copy">
+                          <span>{sessionOverviewTitle(card)}</span>
+                          <strong>{sessionOverviewValue(card)}</strong>
+                        </span>
+                      </>
+                    );
+                    if (card.title === "Context Sources") {
+                      return (
+                        <button
+                          type="button"
+                          className={`session-overview-card session-overview-action ${card.tone}`}
+                          title={`${sessionOverviewDetail(card)} Preview context.`}
+                          aria-label="Preview current context"
+                          onClick={() => void previewCurrentContext()}
+                          disabled={running}
+                          key={card.title}
+                        >
+                          {content}
+                        </button>
+                      );
+                    }
+                    return (
+                      <div
+                        className={`session-overview-card ${card.tone}`}
+                        title={sessionOverviewDetail(card)}
+                        key={card.title}
+                      >
+                        {content}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </>
@@ -20380,13 +21709,16 @@ export default function App() {
             <button
               type="button"
               className="primary"
-              onClick={() => void submit()}
-              disabled={running || !input.trim()}
-              title="Ask Agent"
-              aria-label="Ask Agent"
+              onClick={submitComposerPrimaryAction}
+              disabled={
+                !trimmedComposerInput ||
+                (running && !activeGuidanceRunId() && !composerPrimaryIsShortcut)
+              }
+              title={composerPrimaryTitle}
+              aria-label={composerPrimaryTitle}
             >
-              <AppIcon name="chat" />
-              <span>Ask</span>
+              <AppIcon name={composerPrimaryIcon} />
+              <span>{composerPrimaryLabel}</span>
             </button>
             {showComposerPreviewAction ? (
               <button
@@ -20404,58 +21736,47 @@ export default function App() {
                 className="advanced-controls composer-advanced-controls"
                 style={sectionThemeStyle(activeSection)}
               >
-                <summary title="Advanced run controls">
+                <summary title="Run tools">
                   <span className="advanced-controls-icon" aria-hidden="true">
                     <AppIcon name="control" />
                   </span>
                   <span className="advanced-controls-copy">
-                    <strong>Advanced</strong>
-                    <span>Shell, batch, resume, and guide actions</span>
+                    <strong>Run tools</strong>
+                    <span>{composerAdvancedSummary}</span>
                   </span>
                 </summary>
                 <div className="button-grid">
-                  <button
-                    type="button"
-                    onClick={() => void callShell()}
-                    disabled={running || !input.trim()}
-                  >
-                    <AppIcon name="control" />
-                    <span>Shell</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void runBatchFromInput()}
-                    disabled={running || !input.trim()}
-                  >
-                    <AppIcon name="tools" />
-                    <span>Batch</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void resumeBatchFromOps()}
-                    disabled={running || !opsId.trim()}
-                  >
-                    <AppIcon name="artifact" />
-                    <span>Resume Batch</span>
-                  </button>
-                  <button
-                    type="button"
-                    title="Resume the run id in the Id field, or the last run when Id is blank."
-                    onClick={() => void resumeLastRun()}
-                    disabled={running || (!opsId.trim() && !lastRunId)}
-                  >
-                    <AppIcon name="trace" />
-                    <span>Resume Run</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void guideLastRun()}
-                    disabled={!canGuideRun}
-                    title="Guide the active run"
-                  >
-                    <AppIcon name="prompt" />
-                    <span>Guide</span>
-                  </button>
+                  {showComposerShellAction ? (
+                    <button type="button" onClick={() => void callShell()}>
+                      <AppIcon name="control" />
+                      <span>Shell</span>
+                    </button>
+                  ) : null}
+                  {showComposerBatchAction ? (
+                    <button type="button" onClick={() => void runBatchFromInput()}>
+                      <AppIcon name="tools" />
+                      <span>Batch</span>
+                    </button>
+                  ) : null}
+                  {showComposerResumeBatchAction ? (
+                    <button
+                      type="button"
+                      onClick={() => void resumeBatchFromOps()}
+                    >
+                      <AppIcon name="artifact" />
+                      <span>Resume Batch</span>
+                    </button>
+                  ) : null}
+                  {showComposerResumeRunAction ? (
+                    <button
+                      type="button"
+                      title="Resume the last run."
+                      onClick={() => void resumeLastRun()}
+                    >
+                      <AppIcon name="trace" />
+                      <span>Resume Run</span>
+                    </button>
+                  ) : null}
                 </div>
               </details>
             ) : null}
@@ -20469,7 +21790,7 @@ export default function App() {
         ) : null}
         {activeSection === "chat" ? (
         <section className="panel">
-          <PanelTitle title="Agent setup" section="chat" icon="setup" />
+          <PanelTitle title="Model" section="chat" icon="setup" />
           <div className="agent-setup-summary" style={sectionThemeStyle("chat")}>
             {modelSetupCards().slice(0, 2).map((card) => (
               <VisualMetric
@@ -20487,7 +21808,7 @@ export default function App() {
             className="advanced-controls setup-details-controls"
             style={sectionThemeStyle("chat")}
           >
-            <summary title="Show provider and model setup">
+            <summary title="Show provider and model controls">
               <span className="advanced-controls-icon" aria-hidden="true">
                 <AppIcon name="setup" />
               </span>
@@ -20544,7 +21865,7 @@ export default function App() {
               </span>
               <span className="advanced-controls-copy">
                 <strong>Model details</strong>
-                <span>Posture, connection, limits, tuning, and cost</span>
+                <span>Model setup</span>
               </span>
             </summary>
             <div className="run-readiness-grid model-setup-grid">
@@ -20572,12 +21893,12 @@ export default function App() {
                   </span>
                   <span className="advanced-controls-copy">
                     <strong>Connection</strong>
-                    <span>Transport, demo identity, and endpoint selection</span>
+                    <span>Runtime identity</span>
                   </span>
                 </summary>
             <label>
               <FieldLabel icon="adapter" section="chat">
-                Transport
+                Run via
               </FieldLabel>
               <select
                 value={transport}
@@ -20585,14 +21906,14 @@ export default function App() {
                 disabled={running}
               >
                 <option value="in-process" disabled={!tauriRuntime}>
-                  in-process
+                  Desktop app
                 </option>
-                <option value="daemon">daemon</option>
+                <option value="daemon">Local server</option>
               </select>
             </label>
             <label>
               <FieldLabel icon="adapter" section="chat">
-                Daemon URL
+                Server URL
               </FieldLabel>
               <input
                 value={daemonUrl}
@@ -20635,7 +21956,7 @@ export default function App() {
                   </span>
                   <span className="advanced-controls-copy">
                     <strong>Limits</strong>
-                    <span>Context window, output budget, and temperature</span>
+                    <span>Tokens and sampling</span>
                   </span>
                 </summary>
           <label>
@@ -20695,7 +22016,7 @@ export default function App() {
                   </span>
                   <span className="advanced-controls-copy">
                     <strong>Model shape</strong>
-                    <span>Modalities, tools, metadata, and credentials</span>
+                    <span>Capabilities and keys</span>
                   </span>
                 </summary>
           <label>
@@ -20779,7 +22100,7 @@ export default function App() {
           </label>
           <label>
             <FieldLabel icon="context" section="chat">
-              Metadata JSON
+              Extra details JSON
             </FieldLabel>
             <textarea
               value={modelMetadataJson}
@@ -20834,7 +22155,7 @@ export default function App() {
                   </span>
                   <span className="advanced-controls-copy">
                     <strong>Provider tuning</strong>
-                    <span>Sampling and reasoning provider options</span>
+                    <span>Sampling controls</span>
                   </span>
                 </summary>
           <label>
@@ -20921,7 +22242,7 @@ export default function App() {
                   </span>
                   <span className="advanced-controls-copy">
                     <strong>Cost</strong>
-                    <span>Manual token pricing for estimates</span>
+                    <span>Pricing estimates</span>
                   </span>
                 </summary>
           <label>
@@ -20934,7 +22255,7 @@ export default function App() {
               step="0.000001"
               value={inputCostPerMillion}
               onChange={(e) => setInputCostPerMillion(e.target.value)}
-              placeholder="config"
+              placeholder="default"
               disabled={running}
             />
           </label>
@@ -20948,7 +22269,7 @@ export default function App() {
               step="0.000001"
               value={outputCostPerMillion}
               onChange={(e) => setOutputCostPerMillion(e.target.value)}
-              placeholder="config"
+              placeholder="default"
               disabled={running}
             />
           </label>
@@ -20959,41 +22280,67 @@ export default function App() {
         </section>
         ) : null}
 
-        {activeSection === "chat" ? (
+        {showChatContextPanel ? (
         <section className="panel">
           <PanelTitle title="Context" section="chat" icon="context" />
-          <div className="segmented-control" role="group" aria-label="Agent mode">
-            <button
-              type="button"
-              className={agentMode === "answer" ? "selected" : ""}
-              aria-pressed={agentMode === "answer"}
-              onClick={() => setAgentMode("answer")}
-              disabled={running}
-              title="No tool calls. The agent answers from the visible context only."
-            >
-              <ButtonLabel icon="chat">Answer</ButtonLabel>
-            </button>
-            <button
-              type="button"
-              className={agentMode === "action" ? "selected" : ""}
-              aria-pressed={agentMode === "action"}
-              onClick={() => setAgentMode("action")}
-              disabled={running}
-              title="One tool call. Useful for routing a simple action."
-            >
-              <ButtonLabel icon="control">One action</ButtonLabel>
-            </button>
-            <button
-              type="button"
-              className={agentMode === "workflow" ? "selected" : ""}
-              aria-pressed={agentMode === "workflow"}
-              onClick={() => setAgentMode("workflow")}
-              disabled={running}
-              title={`Default ${CALLS_MAX}-call budget for multi-step work.`}
-            >
-              <ButtonLabel icon="tools">Workflow</ButtonLabel>
-            </button>
-          </div>
+          <details
+            className="advanced-controls context-mode-controls"
+            style={sectionThemeStyle("chat")}
+          >
+            <summary title="Choose run mode">
+              <span className="advanced-controls-icon" aria-hidden="true">
+                <AppIcon name="tools" />
+              </span>
+              <span className="advanced-controls-copy">
+                <strong>Run mode: {activeRunModeLabel()}</strong>
+                <span>{activeRunModeHint()}</span>
+              </span>
+            </summary>
+            <div className="segmented-control four" role="group" aria-label="Agent mode">
+              <button
+                type="button"
+                className={simplePresetActive ? "selected" : ""}
+                aria-pressed={simplePresetActive}
+                onClick={() => applyLowOverheadPreset("answer")}
+                disabled={running}
+                title="Fast answer preset. Turns off tools, memory, skills, compaction, and subagents for this run."
+              >
+                <ButtonLabel icon="chat">Simple</ButtonLabel>
+              </button>
+              <button
+                type="button"
+                className={
+                  agentMode === "answer" && !simplePresetActive ? "selected" : ""
+                }
+                aria-pressed={agentMode === "answer" && !simplePresetActive}
+                onClick={() => setAgentMode("answer")}
+                disabled={running}
+                title="Tool-call free mode. The agent answers from the visible context only."
+              >
+                <ButtonLabel icon="chat">Answer</ButtonLabel>
+              </button>
+              <button
+                type="button"
+                className={agentMode === "action" ? "selected" : ""}
+                aria-pressed={agentMode === "action"}
+                onClick={() => setAgentMode("action")}
+                disabled={running}
+                title="One tool call. Useful for routing a simple action."
+              >
+                <ButtonLabel icon="control">Action</ButtonLabel>
+              </button>
+              <button
+                type="button"
+                className={agentMode === "workflow" ? "selected" : ""}
+                aria-pressed={agentMode === "workflow"}
+                onClick={() => setAgentMode("workflow")}
+                disabled={running}
+                title={`Default ${CALLS_MAX}-call budget for multi-step work.`}
+              >
+                <ButtonLabel icon="tools">Workflow</ButtonLabel>
+              </button>
+            </div>
+          </details>
           {agentMode === "custom" ? (
             <ModeNote section="chat" icon="tools">
               Custom budget: {effectiveMaxToolCalls} calls
@@ -21006,10 +22353,10 @@ export default function App() {
           ) : null}
           {!requireApproval ? (
             <ModeNote section="chat" icon="approval">
-              Auto-approve is on for this run setup.
+              Auto-approve is on for this run.
             </ModeNote>
           ) : null}
-          {showContextPreviewAction ? (
+          {showContextPanelPreviewAction ? (
             <div className="context-actions" style={sectionThemeStyle("chat")}>
               <button
                 type="button"
@@ -21033,8 +22380,8 @@ export default function App() {
                     <AppIcon name="context" />
                   </span>
                   <span className="advanced-controls-copy">
-                    <strong>Run check</strong>
-                    <span>Agent, budget, safety, sources, and prep</span>
+                    <strong>Readiness</strong>
+                    <span>Run checklist</span>
                   </span>
                 </summary>
                 <div className="run-readiness-grid">
@@ -21060,13 +22407,13 @@ export default function App() {
               className="context-more-controls"
               style={sectionThemeStyle("chat")}
             >
-              <summary title="Show run and context settings">
+              <summary title="Show advanced run options">
                 <span className="advanced-controls-icon" aria-hidden="true">
                   <AppIcon name="control" />
                 </span>
                 <span className="advanced-controls-copy">
                   <strong>Run settings</strong>
-                  <span>Tools, context, safety, and routing</span>
+                  <span>{runSettingsSummary}</span>
                 </span>
               </summary>
               <div className="context-more-grid">
@@ -21080,7 +22427,7 @@ export default function App() {
               </span>
               <span className="advanced-controls-copy">
                 <strong>Tool access</strong>
-                <span>Shell access and custom call budget</span>
+                <span>Tool budget</span>
               </span>
             </summary>
             <label className="switch">
@@ -21102,7 +22449,7 @@ export default function App() {
                 step="1"
                 value={maxToolCalls}
                 onChange={(e) => setMaxToolCalls(e.target.value)}
-                placeholder="config"
+                placeholder="default"
                 disabled={running}
               />
             </label>
@@ -21117,7 +22464,7 @@ export default function App() {
               </span>
               <span className="advanced-controls-copy">
                 <strong>Branch</strong>
-                <span>Optional conversation id for continuing context</span>
+                <span>Branch context</span>
               </span>
             </summary>
           <label>
@@ -21142,7 +22489,7 @@ export default function App() {
               </span>
               <span className="advanced-controls-copy">
                 <strong>Rules</strong>
-                <span>Compaction, visibility, and allowlists</span>
+                <span>Context policy</span>
               </span>
             </summary>
             <div className="context-more-grid">
@@ -21156,7 +22503,7 @@ export default function App() {
                   </span>
                   <span className="advanced-controls-copy">
                     <strong>Compaction</strong>
-                    <span>Token thresholds and compacted output budget</span>
+                    <span>Auto compact budget</span>
                   </span>
                 </summary>
                 <label>
@@ -21168,8 +22515,11 @@ export default function App() {
                     min="1"
                     step="1"
                     value={maxTokensBeforeCompaction}
-                    onChange={(e) => setMaxTokensBeforeCompaction(e.target.value)}
-                    placeholder="config"
+                    onChange={(e) => {
+                      setClearMaxTokensBeforeCompaction(false);
+                      setMaxTokensBeforeCompaction(e.target.value);
+                    }}
+                    placeholder="default"
                     disabled={running}
                   />
                 </label>
@@ -21182,8 +22532,11 @@ export default function App() {
                     min="1"
                     step="1"
                     value={maxCompactionOutputTokens}
-                    onChange={(e) => setMaxCompactionOutputTokens(e.target.value)}
-                    placeholder="config"
+                    onChange={(e) => {
+                      setClearMaxTokensBeforeCompaction(false);
+                      setMaxCompactionOutputTokens(e.target.value);
+                    }}
+                    placeholder="default"
                     disabled={running}
                   />
                 </label>
@@ -21198,7 +22551,7 @@ export default function App() {
                   </span>
                   <span className="advanced-controls-copy">
                     <strong>Visibility</strong>
-                    <span>Tool and skill detail shown to the model</span>
+                    <span>Visible detail</span>
                   </span>
                 </summary>
                 <label>
@@ -21212,7 +22565,7 @@ export default function App() {
                     }
                     disabled={running}
                   >
-                    <option value="">config</option>
+                    <option value="">default</option>
                     <option value="full_schema">full schema</option>
                     <option value="name_and_description">name and description</option>
                     <option value="name_only">name only</option>
@@ -21229,7 +22582,7 @@ export default function App() {
                     }
                     disabled={running}
                   >
-                    <option value="">config</option>
+                    <option value="">default</option>
                     <option value="full_schema">full schema</option>
                     <option value="name_and_description">name and description</option>
                     <option value="name_only">name only</option>
@@ -21246,7 +22599,7 @@ export default function App() {
                   </span>
                   <span className="advanced-controls-copy">
                     <strong>Allowlists</strong>
-                    <span>Exact tools plus tool and skill categories</span>
+                    <span>Allowed access</span>
                   </span>
                 </summary>
                 <label>
@@ -21295,7 +22648,7 @@ export default function App() {
               </span>
               <span className="advanced-controls-copy">
                 <strong>Delegation</strong>
-                <span>Subagents, recursion limits, capability drafts, hooks, and overrides</span>
+                <span>Agent delegation</span>
               </span>
             </summary>
           <label className="switch">
@@ -21317,7 +22670,7 @@ export default function App() {
               step="1"
               value={maxSubagentDepth}
               onChange={(e) => setMaxSubagentDepth(e.target.value)}
-              placeholder="config"
+              placeholder="default"
               disabled={running}
             />
           </label>
@@ -21331,7 +22684,7 @@ export default function App() {
               step="1"
               value={maxRecursionDepth}
               onChange={(e) => setMaxRecursionDepth(e.target.value)}
-              placeholder="config"
+              placeholder="default"
               disabled={running}
             />
           </label>
@@ -21406,7 +22759,7 @@ export default function App() {
               </span>
               <span className="advanced-controls-copy">
                 <strong>Knowledge</strong>
-                <span>Memory and skill loading for this run</span>
+                <span>Memory and skills</span>
               </span>
             </summary>
             <label className="switch">
@@ -21437,13 +22790,13 @@ export default function App() {
                 <AppIcon name="memory" />
               </span>
               <span className="advanced-controls-copy">
-                <strong>Memory setup</strong>
-                <span>Backend, model, and generation policy</span>
+                <strong>Memory</strong>
+                <span>Memory setup</span>
               </span>
             </summary>
           <label>
             <FieldLabel icon="memory" section="chat">
-              Memory backend
+              Memory storage
             </FieldLabel>
             <select
               value={memoryBackend}
@@ -21466,7 +22819,7 @@ export default function App() {
               onChange={(e) => setMemoryModel(e.target.value)}
               placeholder="agent/profile default"
               disabled={running}
-              title="Saved model id used by memory generation or classification fallbacks."
+              title="Saved model used by memory generation or classification fallbacks."
             />
           </label>
           <label>
@@ -21495,8 +22848,8 @@ export default function App() {
                 <AppIcon name="control" />
               </span>
               <span className="advanced-controls-copy">
-                <strong>Voice setup</strong>
-                <span>Speech input, speech output, voice, and tone</span>
+                <strong>Voice</strong>
+                <span>Speech and voice</span>
               </span>
             </summary>
           <label>
@@ -21510,7 +22863,7 @@ export default function App() {
               }
               disabled={running}
             >
-              <option value="">config</option>
+              <option value="">default</option>
               <option value="on">on</option>
               <option value="off">off</option>
             </select>
@@ -21526,14 +22879,14 @@ export default function App() {
               }
               disabled={running}
             >
-              <option value="">config</option>
+              <option value="">default</option>
               <option value="on">on</option>
               <option value="off">off</option>
             </select>
           </label>
           <label>
             <FieldLabel icon="control" section="chat">
-              STT backend
+              Speech input
             </FieldLabel>
             <input
               value={voiceInputBackend}
@@ -21544,7 +22897,7 @@ export default function App() {
           </label>
           <label>
             <FieldLabel icon="setup" section="chat">
-              STT provider
+              Input provider
             </FieldLabel>
             <input
               value={voiceInputProvider}
@@ -21555,7 +22908,7 @@ export default function App() {
           </label>
           <label>
             <FieldLabel icon="prompt" section="chat">
-              STT model
+              Input model
             </FieldLabel>
             <input
               value={voiceInputModel}
@@ -21566,7 +22919,7 @@ export default function App() {
           </label>
           <label>
             <FieldLabel icon="artifact" section="chat">
-              TTS backend
+              Speech output
             </FieldLabel>
             <input
               value={voiceOutputBackend}
@@ -21577,7 +22930,7 @@ export default function App() {
           </label>
           <label>
             <FieldLabel icon="setup" section="chat">
-              TTS provider
+              Output provider
             </FieldLabel>
             <input
               value={voiceTtsProvider}
@@ -21588,7 +22941,7 @@ export default function App() {
           </label>
           <label>
             <FieldLabel icon="prompt" section="chat">
-              TTS model
+              Output model
             </FieldLabel>
             <input
               value={voiceTtsModel}
@@ -21630,7 +22983,7 @@ export default function App() {
               </span>
               <span className="advanced-controls-copy">
                 <strong>Ingest</strong>
-                <span>Unsafe source override and guardrail mode</span>
+                <span>Source safety</span>
               </span>
             </summary>
             <label className="switch">
@@ -21655,7 +23008,7 @@ export default function App() {
                 }
                 disabled={running}
               >
-                <option value="">config</option>
+                <option value="">default</option>
                 <option value="block">block</option>
                 <option value="warn">warn</option>
                 <option value="allow">allow</option>
@@ -21672,7 +23025,7 @@ export default function App() {
               </span>
               <span className="advanced-controls-copy">
                 <strong>Approval</strong>
-                <span>Gate, controller agent, delegated tools, and categories</span>
+                <span>Gate and scope</span>
               </span>
             </summary>
           <label className="switch">
@@ -21693,7 +23046,7 @@ export default function App() {
               onChange={(e) => setRunApprovalControllerAgent(e.target.value)}
               placeholder="human approval"
               disabled={running}
-              title="Saved or runtime agent id allowed to assess scoped approvals."
+              title="Saved or runtime agent allowed to assess scoped approvals."
             />
           </label>
           <label>
@@ -21731,7 +23084,7 @@ export default function App() {
               </span>
               <span className="advanced-controls-copy">
                 <strong>Routing</strong>
-                <span>Output, model routing, and prompt prep</span>
+                <span>Response routing</span>
               </span>
             </summary>
             <div className="context-more-grid">
@@ -21745,7 +23098,7 @@ export default function App() {
                   </span>
                   <span className="advanced-controls-copy">
                     <strong>Output</strong>
-                    <span>Interpreted or raw tool results</span>
+                    <span>Tool output format</span>
                   </span>
                 </summary>
             <FieldLabel icon="artifact" section="chat">
@@ -21770,12 +23123,12 @@ export default function App() {
                 disabled={running}
                 title="Show original tool results without interpretation."
               >
-                <ButtonLabel icon="artifact">Raw</ButtonLabel>
+                <ButtonLabel icon="artifact">Exact</ButtonLabel>
               </button>
             </div>
             {rawToolOutput ? (
               <ModeNote section="chat" icon="prompt">
-                Raw output preserves original tool results and skips interpretation.
+                Exact results preserve original tool results and skip interpretation.
               </ModeNote>
             ) : null}
               </details>
@@ -21788,8 +23141,8 @@ export default function App() {
                     <AppIcon name="tools" />
                   </span>
                   <span className="advanced-controls-copy">
-                    <strong>Models</strong>
-                    <span>Router and interpreter model overrides</span>
+                    <strong>Model routing</strong>
+                    <span>Model overrides</span>
                   </span>
                 </summary>
           <label>
@@ -21831,7 +23184,7 @@ export default function App() {
                   </span>
                   <span className="advanced-controls-copy">
                     <strong>Prompt prep</strong>
-                    <span>Compaction guidance and prompt refinement</span>
+                    <span>Prompt guidance</span>
                   </span>
                 </summary>
           <label>
@@ -21841,8 +23194,11 @@ export default function App() {
             <textarea
               className="ops-text"
               value={compactionGuidance}
-              onChange={(e) => setCompactionGuidance(e.target.value)}
-              placeholder="config"
+              onChange={(e) => {
+                setClearMaxTokensBeforeCompaction(false);
+                setCompactionGuidance(e.target.value);
+              }}
+              placeholder="default"
               disabled={running}
               rows={2}
             />
@@ -21925,8 +23281,8 @@ export default function App() {
                 <AppIcon name="trace" />
               </span>
               <span className="advanced-controls-copy">
-                <strong>Diagnostics</strong>
-                <span>Setup and tools</span>
+                <strong>Checks</strong>
+                <span>Run checks</span>
               </span>
             </summary>
             <div className="button-grid">
@@ -21935,7 +23291,7 @@ export default function App() {
                 onClick={() => void explainCurrentConfig()}
                 disabled={running}
               >
-                <ButtonLabel icon="setup">Setup</ButtonLabel>
+                <ButtonLabel icon="setup">Runtime</ButtonLabel>
               </button>
               <button
                 type="button"
@@ -22187,9 +23543,9 @@ export default function App() {
                   type="button"
                   onClick={sendContextPreviewToValue}
                   disabled={running}
-                  title="Stage the exact preview snapshot as Payload."
+                  title="Send the exact preview snapshot to Payload."
                 >
-                  <ButtonLabel icon="context">Stage JSON</ButtonLabel>
+                  <ButtonLabel icon="context">Send JSON</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22672,7 +24028,7 @@ export default function App() {
                   <EmptyNote
                     section="chat"
                     icon="conversation"
-                    title="No visible messages"
+                    title="Message list empty"
                     detail="This preview has no conversation messages to include."
                   />
                 )}
@@ -22903,7 +24259,7 @@ export default function App() {
                             className="advanced-controls"
                             style={sectionThemeStyle("chat")}
                           >
-                            <summary title="Show manual tool-call staging action">
+                            <summary title="Show context tool staging controls">
                               <span
                                 className="advanced-controls-icon"
                                 aria-hidden="true"
@@ -22911,18 +24267,18 @@ export default function App() {
                                 <AppIcon name="tools" />
                               </span>
                               <span className="advanced-controls-copy">
-                                <strong>More</strong>
-                                <span>Stage this tool call</span>
+                                <strong>Context tool</strong>
+                                <span>Preview staging</span>
                               </span>
                             </summary>
                             <div className="button-grid">
                               <button
                                 type="button"
-                                title="Stage this tool in Target id and Payload for a manual call."
+                                title="Prepare this tool in Target and Payload for a tool call."
                                 onClick={() => void stageToolFromPreview(tool)}
                                 disabled={running}
                               >
-                                <ButtonLabel icon="tools">Stage tool</ButtonLabel>
+                                <ButtonLabel icon="tools">Prepare</ButtonLabel>
                               </button>
                             </div>
                           </details>
@@ -23518,7 +24874,7 @@ export default function App() {
             {showTraceLoadAction ? (
               <button
                 type="button"
-                title="Load the run id in the Id field, or the last run when Id is blank."
+                title="Load the run in Target, or the last run when Target is blank."
                 onClick={() => void loadTraceFromOps()}
                 disabled={running}
               >
@@ -23528,7 +24884,7 @@ export default function App() {
             {showTraceCompareAction ? (
               <button
                 type="button"
-                title="Load the comparison run id as a secondary trace."
+                title="Load the comparison run as a secondary trace."
                 onClick={() => void loadTraceComparisonFromOps()}
                 disabled={running}
               >
@@ -23680,7 +25036,7 @@ export default function App() {
                         className="advanced-controls"
                         style={sectionThemeStyle("trace")}
                       >
-                        <summary title="Show trace replay and staging actions">
+                        <summary title="Show trace replay and selection actions">
                           <span
                             className="advanced-controls-icon"
                             aria-hidden="true"
@@ -23688,8 +25044,8 @@ export default function App() {
                             <AppIcon name="trace" />
                           </span>
                           <span className="advanced-controls-copy">
-                            <strong>More</strong>
-                            <span>Replay or stage this run</span>
+                            <strong>Replay tools</strong>
+                            <span>Replay and select</span>
                           </span>
                         </summary>
                         <div className="button-grid">
@@ -23720,11 +25076,11 @@ export default function App() {
                           </button>
                           <button
                             type="button"
-                            title="Move this run id into the Target id field."
+                            title="Use this run as the Target."
                             onClick={() => setOpsId(record.run_id)}
                             disabled={running}
                           >
-                            <ButtonLabel icon="trace">Set id</ButtonLabel>
+                            <ButtonLabel icon="trace">Select</ButtonLabel>
                           </button>
                         </div>
                       </details>
@@ -23732,184 +25088,244 @@ export default function App() {
                   );
                 })}
               </div>
+              <ContextPreviewPayload
+                title="Runs JSON"
+                meta={rawPayloadMeta(traceRuns)}
+                icon="trace"
+              >
+                <pre>{previewJson(traceRuns)}</pre>
+              </ContextPreviewPayload>
             </section>
           ) : null}
           {traceSummary ? (
-            <div className="trace-summary" style={sectionThemeStyle("trace")}>
-              <VisualMetric
+            <>
+              <div className="trace-summary" style={sectionThemeStyle("trace")}>
+                <VisualMetric
+                  icon="trace"
+                  label="events"
+                  value={traceSummary.events}
+                  section="trace"
+                />
+                <VisualMetric
+                  icon="context"
+                  label="contexts"
+                  value={traceSummary.context_snapshots}
+                  section="trace"
+                />
+                <VisualMetric
+                  icon="prompt"
+                  label="LLM calls"
+                  value={traceSummary.llm_calls}
+                  section="trace"
+                />
+                <VisualMetric
+                  icon="tools"
+                  label="tool calls"
+                  value={traceSummary.tool_calls}
+                  section="trace"
+                />
+                <VisualMetric
+                  icon="setup"
+                  label="tokens in/out"
+                  value={`${traceSummary.tokens_in}/${traceSummary.tokens_out}`}
+                  section="trace"
+                />
+                <VisualMetric
+                  icon="profile"
+                  label="cost"
+                  value={
+                    traceSummary.cost_usd === null
+                      ? "n/a"
+                      : `$${traceSummary.cost_usd.toFixed(6)}`
+                  }
+                  section="trace"
+                />
+                <VisualMetric
+                  icon="control"
+                  label="duration"
+                  value={
+                    traceSummary.duration_ms === null
+                      ? "n/a"
+                      : `${traceSummary.duration_ms}ms`
+                  }
+                  section="trace"
+                />
+                <VisualMetric
+                  icon="approval"
+                  label="approvals"
+                  value={traceSummary.approvals}
+                  section="trace"
+                />
+                <VisualMetric
+                  icon="chat"
+                  label="guidance"
+                  value={traceSummary.guidance_injections}
+                  section="trace"
+                />
+                <VisualMetric
+                  icon="skill"
+                  label={
+                    traceSummary.quality_score_average == null
+                      ? "quality scores"
+                      : `quality avg ${traceSummary.quality_score_average.toFixed(1)}`
+                  }
+                  value={traceSummary.quality_scores}
+                  section="trace"
+                />
+                <VisualMetric
+                  icon="memory"
+                  label="memory"
+                  value={traceSummary.memory_fragments}
+                  section="trace"
+                />
+                <VisualMetric
+                  icon="artifact"
+                  label="artifacts"
+                  value={traceSummary.artifact_refs}
+                  section="trace"
+                />
+                <VisualMetric
+                  icon="adapter"
+                  label={traceSummary.hook_failures ? "hooks / failed" : "hooks"}
+                  value={
+                    traceSummary.hook_failures
+                      ? `${traceSummary.hooks}/${traceSummary.hook_failures}`
+                      : traceSummary.hooks
+                  }
+                  section="trace"
+                />
+              </div>
+              <ContextPreviewPayload
+                title="Summary JSON"
+                meta={rawPayloadMeta(traceSummary)}
                 icon="trace"
-                label="events"
-                value={traceSummary.events}
-                section="trace"
-              />
-              <VisualMetric
-                icon="context"
-                label="contexts"
-                value={traceSummary.context_snapshots}
-                section="trace"
-              />
-              <VisualMetric
-                icon="prompt"
-                label="LLM calls"
-                value={traceSummary.llm_calls}
-                section="trace"
-              />
-              <VisualMetric
-                icon="tools"
-                label="tool calls"
-                value={traceSummary.tool_calls}
-                section="trace"
-              />
-              <VisualMetric
-                icon="setup"
-                label="tokens in/out"
-                value={`${traceSummary.tokens_in}/${traceSummary.tokens_out}`}
-                section="trace"
-              />
-              <VisualMetric
-                icon="profile"
-                label="cost"
-                value={
-                  traceSummary.cost_usd === null
-                    ? "n/a"
-                    : `$${traceSummary.cost_usd.toFixed(6)}`
-                }
-                section="trace"
-              />
-              <VisualMetric
-                icon="control"
-                label="duration"
-                value={
-                  traceSummary.duration_ms === null
-                    ? "n/a"
-                    : `${traceSummary.duration_ms}ms`
-                }
-                section="trace"
-              />
-              <VisualMetric
-                icon="approval"
-                label="approvals"
-                value={traceSummary.approvals}
-                section="trace"
-              />
-              <VisualMetric
-                icon="chat"
-                label="guidance"
-                value={traceSummary.guidance_injections}
-                section="trace"
-              />
-              <VisualMetric
-                icon="skill"
-                label={
-                  traceSummary.quality_score_average == null
-                    ? "quality scores"
-                    : `quality avg ${traceSummary.quality_score_average.toFixed(1)}`
-                }
-                value={traceSummary.quality_scores}
-                section="trace"
-              />
-              <VisualMetric
-                icon="memory"
-                label="memory"
-                value={traceSummary.memory_fragments}
-                section="trace"
-              />
-              <VisualMetric
-                icon="artifact"
-                label="artifacts"
-                value={traceSummary.artifact_refs}
-                section="trace"
-              />
-              <VisualMetric
-                icon="adapter"
-                label={traceSummary.hook_failures ? "hooks / failed" : "hooks"}
-                value={
-                  traceSummary.hook_failures
-                    ? `${traceSummary.hooks}/${traceSummary.hook_failures}`
-                    : traceSummary.hooks
-                }
-                section="trace"
-              />
-            </div>
-          ) : (
+              >
+                <pre>{previewJson(traceSummary)}</pre>
+              </ContextPreviewPayload>
+            </>
+          ) : !traceRuns.length &&
+            (traceRunsListed || Boolean(lastRunId || activeOpsId)) ? (
             <EmptyNote
               section="trace"
               icon="trace"
-              title="No trace loaded"
+              title="Trace inspector"
               detail="Run or load a trace to inspect model, context, tools, cost, and approvals."
             />
-          )}
+          ) : null}
           {showTraceToolsControls ? (
             <details
               className="context-more-controls"
               style={sectionThemeStyle("trace")}
             >
-              <summary title="Show trace replay and cleanup tools">
+              <summary title={traceToolsSummaryHint}>
                 <span className="advanced-controls-icon" aria-hidden="true">
-                  <AppIcon name="trace" />
+                  <AppIcon name={traceToolsSummaryIcon} />
                 </span>
                 <span className="advanced-controls-copy">
-                  <strong>Trace tools</strong>
-                  <span>Recovery, replay, comparison, and cleanup</span>
+                  <strong>{traceToolsSummaryTitle}</strong>
+                  <span>{traceToolsSummaryDetail}</span>
                 </span>
               </summary>
               <div className="context-more-grid">
-                <details
-                  className="advanced-controls"
-                  style={sectionThemeStyle("trace")}
-                >
-                  <summary>
-                    <span className="advanced-controls-icon" aria-hidden="true">
-                      <AppIcon name="trace" />
-                    </span>
-                    <span className="advanced-controls-copy">
-                      <strong>Replay and cleanup</strong>
-                      <span>Recover prompts, rerun traces, or clear loaded comparisons</span>
-                    </span>
-                  </summary>
+                {showTraceReplayCleanupControls ? (
+                  <div className="button-grid context-more-grid-row">
+                    {showTraceClearAction ? (
+                      <button
+                        type="button"
+                        title="Clear the loaded trace."
+                        onClick={clearLoadedTrace}
+                      >
+                        <ButtonLabel icon="approval">Clear Trace</ButtonLabel>
+                      </button>
+                    ) : null}
+                    {showTraceClearCompareAction ? (
+                      <button
+                        type="button"
+                        title="Clear the comparison trace."
+                        onClick={clearTraceComparison}
+                      >
+                        <ButtonLabel icon="approval">Clear Compare</ButtonLabel>
+                      </button>
+                    ) : null}
+                    {showTraceRecoveredPromptActions ? (
+                      <button
+                        type="button"
+                        title="Load the original prompt from the loaded trace into the composer."
+                        onClick={() => void loadTracePromptToComposer()}
+                      >
+                        <ButtonLabel icon="prompt">Load Prompt</ButtonLabel>
+                      </button>
+                    ) : null}
+                    {showTraceRecoveredPromptActions ? (
+                      <button
+                        type="button"
+                        title="Run the original prompt from the loaded trace again."
+                        onClick={() => void replayTracePrompt()}
+                      >
+                        <ButtonLabel icon="trace">Replay</ButtonLabel>
+                      </button>
+                    ) : null}
+                    {showTraceRecoveredPromptActions ? (
+                      <button
+                        type="button"
+                        title="Run the original prompt again, then compare the replay against this trace."
+                        onClick={() => void replayTracePromptWithComparison()}
+                      >
+                        <ButtonLabel icon="trace">Replay Compare</ButtonLabel>
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+                {showTraceHookCatalogActions && showTraceReplayCleanupControls ? (
+                  <details
+                    className="advanced-controls"
+                    style={sectionThemeStyle("trace")}
+                  >
+                    <summary>
+                      <span className="advanced-controls-icon" aria-hidden="true">
+                        <AppIcon name="adapter" />
+                      </span>
+                      <span className="advanced-controls-copy">
+                        <strong>Hook catalog</strong>
+                        <span>Hooks and policy</span>
+                      </span>
+                    </summary>
+                    <div className="button-grid">
+                      <button
+                        type="button"
+                        title="List allowed lifecycle hooks and their effective policy state."
+                        onClick={() => void refreshHookCatalog()}
+                      >
+                        <ButtonLabel icon="adapter">List Hooks</ButtonLabel>
+                      </button>
+                      <button
+                        type="button"
+                        title="Load persisted lifecycle hook policy for the active agent/profile."
+                        onClick={() => void refreshHookPolicy()}
+                      >
+                        <ButtonLabel icon="approval">Refresh Policy</ButtonLabel>
+                      </button>
+                    </div>
+                  </details>
+                ) : null}
+                {showTraceHookCatalogActions && !showTraceReplayCleanupControls ? (
                   <div className="button-grid">
                     <button
                       type="button"
-                      title="Clear the loaded trace."
-                      onClick={clearLoadedTrace}
-                      disabled={running || !traceEvents.length}
+                      title="List allowed lifecycle hooks and their effective policy state."
+                      onClick={() => void refreshHookCatalog()}
                     >
-                      <ButtonLabel icon="approval">Clear Trace</ButtonLabel>
+                      <ButtonLabel icon="adapter">List Hooks</ButtonLabel>
                     </button>
                     <button
                       type="button"
-                      title="Clear the comparison trace."
-                      onClick={clearTraceComparison}
-                      disabled={running || !traceCompareSummary}
+                      title="Load persisted lifecycle hook policy for the active agent/profile."
+                      onClick={() => void refreshHookPolicy()}
                     >
-                      <ButtonLabel icon="approval">Clear Compare</ButtonLabel>
-                    </button>
-                    <button
-                      type="button"
-                      title="Load the original prompt from the loaded trace into the composer."
-                      onClick={() => void loadTracePromptToComposer()}
-                      disabled={running || !loadedTracePrompt}
-                    >
-                      <ButtonLabel icon="prompt">Load Prompt</ButtonLabel>
-                    </button>
-                    <button
-                      type="button"
-                      title="Run the original prompt from the loaded trace again."
-                      onClick={() => void replayTracePrompt()}
-                      disabled={running || !loadedTracePrompt}
-                    >
-                      <ButtonLabel icon="trace">Replay</ButtonLabel>
-                    </button>
-                    <button
-                      type="button"
-                      title="Run the original prompt again, then compare the replay against this trace."
-                      onClick={() => void replayTracePromptWithComparison()}
-                      disabled={running || !loadedTracePrompt}
-                    >
-                      <ButtonLabel icon="trace">Replay Compare</ButtonLabel>
+                      <ButtonLabel icon="approval">Refresh Policy</ButtonLabel>
                     </button>
                   </div>
-                </details>
+                ) : null}
               </div>
             </details>
           ) : null}
@@ -23995,6 +25411,13 @@ export default function App() {
                 />
               </div>
               <div className="trace-tree-list">{renderTraceTreeNode(traceTree)}</div>
+              <ContextPreviewPayload
+                title="Tree JSON"
+                meta={rawPayloadMeta(traceTree)}
+                icon="trace"
+              >
+                <pre>{previewJson(traceTree)}</pre>
+              </ContextPreviewPayload>
             </section>
           ) : null}
           {traceSummary && traceCompareSummary ? (
@@ -24072,6 +25495,7 @@ export default function App() {
               </div>
             </section>
           ) : null}
+          {showTraceHookCatalogState ? (
           <section className="hook-remediation-list">
             <div className="trace-section-head">
               <div
@@ -24274,7 +25698,7 @@ export default function App() {
                         </button>
                         <button
                           type="button"
-                          title="Persistently skip or re-enable this lifecycle hook for the active agent config."
+                          title="Persistently skip or re-enable this lifecycle hook for the active agent settings."
                           onClick={() =>
                             void setPersistentHookDisabled(
                               hook.id,
@@ -24294,7 +25718,8 @@ export default function App() {
               </div>
             ) : null}
           </section>
-          {hookRemediationsFromEvents(traceEvents).length ? (
+          ) : null}
+          {traceHookRemediations.length ? (
             <section className="hook-remediation-list">
               <div className="trace-section-head">
                 <div
@@ -24307,10 +25732,8 @@ export default function App() {
                   <div>
                     <strong>Hook Review</strong>
                     <span>
-                      {hookRemediationsFromEvents(traceEvents).length} remediation
-                      {hookRemediationsFromEvents(traceEvents).length === 1
-                        ? ""
-                        : "s"}{" "}
+                      {traceHookRemediations.length} remediation
+                      {traceHookRemediations.length === 1 ? "" : "s"}{" "}
                       from this run
                     </span>
                   </div>
@@ -24336,7 +25759,7 @@ export default function App() {
                 </div>
               </div>
               <div className="context-cards">
-                {hookRemediationsFromEvents(traceEvents).map((item) => {
+                {traceHookRemediations.map((item) => {
                   const persistentlyDisabled = hookIsPersistentlyDisabled(item.hook_id);
                   const profileDisabled = hookIsProfileDisabled(item.hook_id);
                   const agentDisabled = hookIsAgentDisabled(item.hook_id);
@@ -24491,8 +25914,8 @@ export default function App() {
                             <AppIcon name="adapter" />
                           </span>
                           <span className="advanced-controls-copy">
-                            <strong>More</strong>
-                            <span>Persist hook policy changes</span>
+                            <strong>Hook policy</strong>
+                            <span>Save changes</span>
                           </span>
                         </summary>
                         <div className="button-grid">
@@ -24513,7 +25936,7 @@ export default function App() {
                           </button>
                           <button
                             type="button"
-                            title="Persistently skip or re-enable this lifecycle hook for the active agent config."
+                            title="Persistently skip or re-enable this lifecycle hook for the active agent settings."
                             onClick={() =>
                               void setPersistentHookDisabled(
                                 item.hook_id,
@@ -24532,6 +25955,13 @@ export default function App() {
                   );
                 })}
               </div>
+              <ContextPreviewPayload
+                title="Hook Review JSON"
+                meta={rawPayloadMeta(traceHookRemediations)}
+                icon="adapter"
+              >
+                <pre>{previewJson(traceHookRemediations)}</pre>
+              </ContextPreviewPayload>
             </section>
           ) : null}
           {traceEvents.length ? (
@@ -24676,7 +26106,7 @@ export default function App() {
                           <AppIcon name={icon} />
                         </span>
                         <span className="structured-raw-copy">
-                          <strong>Raw event</strong>
+                          <strong>Exact event</strong>
                           <span>{rawPayloadMeta(event)}</span>
                         </span>
                       </summary>
@@ -24710,7 +26140,7 @@ export default function App() {
                   <>
                     <button
                       type="button"
-                      title="Show expanded conversation Id."
+                      title="Show the Target conversation."
                       onClick={() => void showConversationFromOps()}
                       disabled={running || !opsId.trim()}
                     >
@@ -24718,7 +26148,7 @@ export default function App() {
                     </button>
                     <button
                       type="button"
-                      title='Show usage totals for conversation Id. Optional Value: { "from": 2, "to": 4 }.'
+                      title='Show usage totals for the Target conversation. Optional Payload: { "from": 2, "to": 4 }.'
                       onClick={() => void loadConversationUsageFromOps()}
                       disabled={running || !opsId.trim()}
                     >
@@ -24740,8 +26170,127 @@ export default function App() {
                   section="conversations"
                   icon="conversation"
                   title="Conversation records loaded"
-                  detail={`${conversationDocs.length} ready for branch review.`}
+                  detail={`${conversationDocs.length} available for branch review.`}
                 />
+              ) : null}
+              {conversationUsageReport ? (
+                <div className="ingestion-review">
+                  <div className={`ingestion-card ${conversationUsageTone}`}>
+                    <div className="ingestion-card-head with-icon">
+                      <span
+                        className={`ingestion-card-icon ${conversationUsageTone}`}
+                        aria-hidden="true"
+                      >
+                        <AppIcon name="trace" />
+                      </span>
+                      <div className="ingestion-card-title">
+                        <strong>Conversation usage</strong>
+                        <span>{conversationUsageReport.conversation_id}</span>
+                      </div>
+                    </div>
+                    <div className="ingestion-metrics">
+                      <VisualMetric
+                        icon="chat"
+                        label="messages"
+                        value={conversationUsageReport.message_count}
+                        section="conversations"
+                        tone="ok"
+                      />
+                      <VisualMetric
+                        icon="trace"
+                        label="runs"
+                        value={`${conversationUsageReport.trace_count}/${conversationUsageReport.run_ids.length}`}
+                        section="conversations"
+                        tone={
+                          conversationUsageIncompleteCount > 0
+                            ? "warning"
+                            : "ok"
+                        }
+                      />
+                      <VisualMetric
+                        icon="context"
+                        label="tokens"
+                        value={`${conversationUsageReport.totals.tokens_in}/${conversationUsageReport.totals.tokens_out}`}
+                        section="conversations"
+                        tone="ok"
+                      />
+                      <VisualMetric
+                        icon="setup"
+                        label="cost"
+                        value={formatCost(conversationUsageReport.totals.cost_usd)}
+                        section="conversations"
+                        tone="neutral"
+                      />
+                    </div>
+                    <div className="conversation-detail-list">
+                      <div className="conversation-detail-row ok">
+                        <span
+                          className="conversation-detail-icon ok"
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="conversation" />
+                        </span>
+                        <div className="conversation-detail-copy">
+                          <strong>Range</strong>
+                          <span>{conversationUsageRange}</span>
+                          <span>
+                            {conversationUsageReport.message_count} message
+                            {conversationUsageReport.message_count === 1
+                              ? ""
+                              : "s"}{" "}
+                            included
+                          </span>
+                        </div>
+                      </div>
+                      <div
+                        className={`conversation-detail-row ${conversationUsageTone}`}
+                      >
+                        <span
+                          className={`conversation-detail-icon ${conversationUsageTone}`}
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="trace" />
+                        </span>
+                        <div className="conversation-detail-copy">
+                          <strong>Trace coverage</strong>
+                          <span>
+                            {conversationUsageIncompleteCount
+                              ? `${conversationUsageReport.missing_run_id_messages.length} unlinked message(s), ${conversationUsageReport.missing_traces.length} missing trace(s)`
+                              : "all linked traces loaded"}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="conversation-detail-row">
+                        <span className="conversation-detail-icon" aria-hidden="true">
+                          <AppIcon name="tools" />
+                        </span>
+                        <div className="conversation-detail-copy">
+                          <strong>Workload</strong>
+                          <span>
+                            {conversationUsageReport.totals.llm_calls} LLM calls /{" "}
+                            {conversationUsageReport.totals.tool_calls} tool calls
+                          </span>
+                          <span>
+                            {conversationUsageReport.totals.duration_ms === null
+                              ? "time n/a"
+                              : formatDuration(
+                                  conversationUsageReport.totals.duration_ms,
+                                )}
+                            {" / "}
+                            {conversationUsageReport.totals.events} events
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <ContextPreviewPayload
+                      title="Usage JSON"
+                      meta={rawPayloadMeta(conversationUsageReport)}
+                      icon="trace"
+                    >
+                      <pre>{previewJson(conversationUsageReport)}</pre>
+                    </ContextPreviewPayload>
+                  </div>
+                </div>
               ) : null}
               {conversationDeletePlan ? (
                 <div className="ingestion-review">
@@ -24825,6 +26374,329 @@ export default function App() {
                         </div>
                       ))}
                     </div>
+                    <ContextPreviewPayload
+                      title="Delete Plan JSON"
+                      meta={rawPayloadMeta(conversationDeletePlan)}
+                      icon="approval"
+                    >
+                      <pre>{previewJson(conversationDeletePlan)}</pre>
+                    </ContextPreviewPayload>
+                  </div>
+                </div>
+              ) : null}
+              {conversationDeleteResult ? (
+                <div className="ingestion-review">
+                  <div className="ingestion-card warning">
+                    <div className="ingestion-card-head with-icon">
+                      <span
+                        className="ingestion-card-icon warning"
+                        aria-hidden="true"
+                      >
+                        <AppIcon name="approval" />
+                      </span>
+                      <div className="ingestion-card-title">
+                        <strong>Delete completed</strong>
+                        <span>{conversationDeleteResult.requested}</span>
+                      </div>
+                    </div>
+                    <div className="ingestion-metrics">
+                      <VisualMetric
+                        icon="conversation"
+                        label="deleted"
+                        value={conversationDeleteResult.deleted.length}
+                        section="conversations"
+                        tone="warning"
+                      />
+                      <VisualMetric
+                        icon="trace"
+                        label="planned"
+                        value={conversationDeleteResult.planned.length}
+                        section="conversations"
+                        tone="neutral"
+                      />
+                      <VisualMetric
+                        icon="context"
+                        label="compactions"
+                        value={conversationDeleteResult.deleted_compactions?.length ?? 0}
+                        section="conversations"
+                        tone={
+                          conversationDeleteResult.deleted_compactions?.length
+                            ? "warning"
+                            : "neutral"
+                        }
+                      />
+                      <VisualMetric
+                        icon="memory"
+                        label="memories"
+                        value={conversationDeleteResult.deleted_memories?.length ?? 0}
+                        section="conversations"
+                        tone={
+                          conversationDeleteResult.deleted_memories?.length
+                            ? "warning"
+                            : "neutral"
+                        }
+                      />
+                      <VisualMetric
+                        icon="artifact"
+                        label="artifacts"
+                        value={conversationDeleteResult.deleted_artifacts?.length ?? 0}
+                        section="conversations"
+                        tone={
+                          conversationDeleteResult.deleted_artifacts?.length
+                            ? "warning"
+                            : "neutral"
+                        }
+                      />
+                    </div>
+                    <div className="conversation-detail-list">
+                      <div className="conversation-detail-row warning">
+                        <span
+                          className="conversation-detail-icon warning"
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="conversation" />
+                        </span>
+                        <div className="conversation-detail-copy">
+                          <strong>Deleted conversations</strong>
+                          <span>
+                            {conversationDeleteResult.deleted.length
+                              ? conversationDeleteResult.deleted.join(", ")
+                              : "none"}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="conversation-detail-row">
+                        <span className="conversation-detail-icon" aria-hidden="true">
+                          <AppIcon name="approval" />
+                        </span>
+                        <div className="conversation-detail-copy">
+                          <strong>Delete mode</strong>
+                          <span>
+                            {conversationDeleteResult.recursive
+                              ? "recursive"
+                              : "single branch"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <ContextPreviewPayload
+                      title="Delete Result JSON"
+                      meta={rawPayloadMeta(conversationDeleteResult)}
+                      icon="approval"
+                    >
+                      <pre>{previewJson(conversationDeleteResult)}</pre>
+                    </ContextPreviewPayload>
+                  </div>
+                </div>
+              ) : null}
+              {conversationRangeReview ? (
+                <div className="ingestion-review">
+                  {(() => {
+                    const tone = conversationRangeReviewTone(conversationRangeReview);
+                    return (
+                      <div className={`ingestion-card ${tone}`}>
+                        <div className="ingestion-card-head with-icon">
+                          <span
+                            className={`ingestion-card-icon ${tone}`}
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="conversation" />
+                          </span>
+                          <div className="ingestion-card-title">
+                            <strong>Range review</strong>
+                            <span>{conversationRangeReview.source_range}</span>
+                          </div>
+                        </div>
+                        <div className="ingestion-metrics">
+                          <VisualMetric
+                            icon="chat"
+                            label="messages"
+                            value={conversationRangeReview.message_count}
+                            section="conversations"
+                            tone={tone}
+                          />
+                          <VisualMetric
+                            icon="conversation"
+                            label="expanded"
+                            value={conversationRangeReview.expanded_message_count}
+                            section="conversations"
+                            tone="neutral"
+                          />
+                          <VisualMetric
+                            icon="context"
+                            label="compactions"
+                            value={conversationRangeReview.linked_compactions.length}
+                            section="conversations"
+                            tone={
+                              conversationRangeReview.linked_compactions.length
+                                ? "warning"
+                                : "neutral"
+                            }
+                          />
+                          <VisualMetric
+                            icon="memory"
+                            label="memories"
+                            value={conversationRangeReview.linked_memories.length}
+                            section="conversations"
+                            tone={
+                              conversationRangeReview.linked_memories.length
+                                ? "warning"
+                                : "neutral"
+                            }
+                          />
+                          <VisualMetric
+                            icon="approval"
+                            label="warnings"
+                            value={conversationRangeReview.warnings.length}
+                            section="conversations"
+                            tone={
+                              conversationRangeReview.warnings.length
+                                ? "warning"
+                                : "ok"
+                            }
+                          />
+                        </div>
+                        <div className="conversation-detail-list">
+                          <div className={`conversation-detail-row ${tone}`}>
+                            <span
+                              className={`conversation-detail-icon ${tone}`}
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="approval" />
+                            </span>
+                            <div className="conversation-detail-copy">
+                              <strong>Delete readiness</strong>
+                              <span>
+                                {conversationRangeReview.deletable_by_delete_range
+                                  ? "range can be deleted"
+                                  : "range cannot be deleted safely"}
+                              </span>
+                            </div>
+                          </div>
+                          {conversationRangeReview.warnings.map((warning, index) => (
+                            <div
+                              className="conversation-detail-row warning"
+                              key={`range-warning:${index}:${warning}`}
+                            >
+                              <span
+                                className="conversation-detail-icon warning"
+                                aria-hidden="true"
+                              >
+                                <AppIcon name="trace" />
+                              </span>
+                              <div className="conversation-detail-copy">
+                                <strong>Warning</strong>
+                                <span>{warning}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <ContextPreviewPayload
+                          title="Range Review JSON"
+                          meta={rawPayloadMeta(conversationRangeReview)}
+                          icon="conversation"
+                        >
+                          <pre>{previewJson(conversationRangeReview)}</pre>
+                        </ContextPreviewPayload>
+                      </div>
+                    );
+                  })()}
+                </div>
+              ) : null}
+              {conversationRangeDeleteResult ? (
+                <div className="ingestion-review">
+                  <div className="ingestion-card warning">
+                    <div className="ingestion-card-head with-icon">
+                      <span
+                        className="ingestion-card-icon warning"
+                        aria-hidden="true"
+                      >
+                        <AppIcon name="control" />
+                      </span>
+                      <div className="ingestion-card-title">
+                        <strong>Range deleted</strong>
+                        <span>{conversationRangeDeleteResult.id}</span>
+                      </div>
+                    </div>
+                    <div className="ingestion-metrics">
+                      <VisualMetric
+                        icon="chat"
+                        label="deleted"
+                        value={conversationRangeDeleteResult.deleted_messages}
+                        section="conversations"
+                        tone="warning"
+                      />
+                      <VisualMetric
+                        icon="conversation"
+                        label="remaining"
+                        value={conversationRangeDeleteResult.expanded_message_count}
+                        section="conversations"
+                        tone="ok"
+                      />
+                      <VisualMetric
+                        icon="context"
+                        label="preserved"
+                        value={
+                          (conversationRangeDeleteResult.preserved_compactions
+                            ?.length ?? 0) +
+                          (conversationRangeDeleteResult.preserved_memories
+                            ?.length ?? 0)
+                        }
+                        section="conversations"
+                        tone="ok"
+                      />
+                      <VisualMetric
+                        icon="approval"
+                        label="removed links"
+                        value={conversationRangeDeleteSideEffectCount(
+                          conversationRangeDeleteResult,
+                        )}
+                        section="conversations"
+                        tone={
+                          conversationRangeDeleteSideEffectCount(
+                            conversationRangeDeleteResult,
+                          )
+                            ? "warning"
+                            : "neutral"
+                        }
+                      />
+                    </div>
+                    <div className="conversation-detail-list">
+                      <div className="conversation-detail-row warning">
+                        <span
+                          className="conversation-detail-icon warning"
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="conversation" />
+                        </span>
+                        <div className="conversation-detail-copy">
+                          <strong>Deleted range</strong>
+                          <span>
+                            {conversationRangeDeleteResult.from}:
+                            {conversationRangeDeleteResult.to}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="conversation-detail-row ok">
+                        <span
+                          className="conversation-detail-icon ok"
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="chat" />
+                        </span>
+                        <div className="conversation-detail-copy">
+                          <strong>Updated conversation</strong>
+                          <span>{conversationRangeDeleteResult.conversation.title}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <ContextPreviewPayload
+                      title="Range Delete JSON"
+                      meta={rawPayloadMeta(conversationRangeDeleteResult)}
+                      icon="control"
+                    >
+                      <pre>{previewJson(conversationRangeDeleteResult)}</pre>
+                    </ContextPreviewPayload>
                   </div>
                 </div>
               ) : null}
@@ -25035,11 +26907,18 @@ export default function App() {
                         <ButtonLabel icon="context">Preview</ButtonLabel>
                       </button>
                     </div>
+                    <ContextPreviewPayload
+                      title="Recovery JSON"
+                      meta={rawPayloadMeta(conversationRecoveryPlan)}
+                      icon="context"
+                    >
+                      <pre>{previewJson(conversationRecoveryPlan)}</pre>
+                    </ContextPreviewPayload>
                     <details
                       className="advanced-controls"
                       style={sectionThemeStyle("conversations")}
                     >
-                      <summary title="Show recovery-plan staging action">
+                      <summary title="Show recovery-plan selection action">
                         <span
                           className="advanced-controls-icon"
                           aria-hidden="true"
@@ -25047,20 +26926,20 @@ export default function App() {
                           <AppIcon name="conversation" />
                         </span>
                         <span className="advanced-controls-copy">
-                          <strong>More</strong>
-                          <span>Stage this conversation</span>
+                          <strong>Conversation tools</strong>
+                          <span>Use as Target</span>
                         </span>
                       </summary>
                       <div className="button-grid">
                         <button
                           type="button"
-                          title="Move the recovery conversation id into the Target id field."
+                          title="Use this recovery conversation as the Target."
                           onClick={() =>
                             setOpsId(conversationRecoveryPlan.conversation_id)
                           }
                           disabled={running}
                         >
-                          <ButtonLabel icon="conversation">Set id</ButtonLabel>
+                          <ButtonLabel icon="conversation">Select</ButtonLabel>
                         </button>
                       </div>
                     </details>
@@ -25194,7 +27073,7 @@ export default function App() {
                               className="advanced-controls"
                               style={sectionThemeStyle("conversations")}
                             >
-                              <summary title="Show branch staging and cleanup actions">
+                              <summary title="Show branch selection and planning actions">
                                 <span
                                   className="advanced-controls-icon"
                                   aria-hidden="true"
@@ -25202,18 +27081,18 @@ export default function App() {
                                   <AppIcon name="conversation" />
                                 </span>
                                 <span className="advanced-controls-copy">
-                                  <strong>More</strong>
-                                  <span>Stage, plan, or delete this branch</span>
+                                  <strong>Branch tools</strong>
+                                  <span>Select and plan</span>
                                 </span>
                               </summary>
                               <div className="button-grid">
                                 <button
                                   type="button"
-                                  title="Move this conversation id into the Target id field."
+                                  title="Use this conversation as the Target."
                                   onClick={() => setOpsId(node.id)}
                                   disabled={running}
                                 >
-                                  <ButtonLabel icon="conversation">Set id</ButtonLabel>
+                                  <ButtonLabel icon="conversation">Select</ButtonLabel>
                                 </button>
                                 <button
                                   type="button"
@@ -25252,114 +27131,100 @@ export default function App() {
                     })}
                   </div>
                 </div>
-              ) : (
+              ) : conversationLibraryListed ? (
                 <EmptyNote
                   section="conversations"
                   icon="conversation"
-                  title="No conversation tree loaded"
+                  title="Branch tree"
                   detail="List conversations to review branches."
                 />
-              )}
+              ) : null}
               {showConversationCleanupControls ? (
                 <details
                   className="context-more-controls"
                   style={sectionThemeStyle("conversations")}
                 >
-                  <summary title="Show conversation cleanup tools">
+                  <summary title="Show range, branch, and agent planning tools">
                     <span className="advanced-controls-icon" aria-hidden="true">
                       <AppIcon name="approval" />
                     </span>
                     <span className="advanced-controls-copy">
-                      <strong>Cleanup tools</strong>
-                      <span>Preview and remove ranges, branches, or agent-owned conversations</span>
+                      <strong>Branch management</strong>
+                      <span>Cleanup planning</span>
                     </span>
                   </summary>
                   <div className="context-more-grid">
-                    <details
-                      className="advanced-controls"
-                      style={sectionThemeStyle("conversations")}
-                    >
-                      <summary>
-                        <span className="advanced-controls-icon" aria-hidden="true">
-                          <AppIcon name="approval" />
-                        </span>
-                        <span className="advanced-controls-copy">
-                          <strong>Delete planning</strong>
-                          <span>Ranges, branches, and agent-owned conversations</span>
-                        </span>
-                      </summary>
-                      <div className="button-grid">
-                        {showConversationRangeCleanupAction ? (
+                    <div className="button-grid context-more-grid-row">
+                      {showConversationRangeCleanupAction ? (
+                        <button
+                          type="button"
+                          title='Delete a leaf conversation message range using Payload like { "from": 2, "to": 4 }.'
+                          onClick={() => void deleteConversationRangeFromOps()}
+                          disabled={running}
+                        >
+                          <ButtonLabel icon="control">Delete Range</ButtonLabel>
+                        </button>
+                      ) : null}
+                      {showConversationBranchCleanupActions ? (
+                        <>
                           <button
                             type="button"
-                            title='Delete a leaf conversation message range using Value like { "from": 2, "to": 4 }.'
-                            onClick={() => void deleteConversationRangeFromOps()}
+                            title="Preview which conversations would be deleted."
+                            onClick={() => void previewConversationDeleteFromOps(false)}
                             disabled={running}
                           >
-                            <ButtonLabel icon="control">Delete Range</ButtonLabel>
+                            <ButtonLabel icon="prompt">Plan Delete</ButtonLabel>
                           </button>
-                        ) : null}
-                        {showConversationBranchCleanupActions ? (
-                          <>
-                            <button
-                              type="button"
-                              title="Preview which conversations would be deleted."
-                              onClick={() => void previewConversationDeleteFromOps(false)}
-                              disabled={running}
-                            >
-                              <ButtonLabel icon="prompt">Plan Delete</ButtonLabel>
-                            </button>
-                            <button
-                              type="button"
-                              title="Preview recursive deletion including child branches."
-                              onClick={() => void previewConversationDeleteFromOps(true)}
-                              disabled={running}
-                            >
-                              <ButtonLabel icon="conversation">Plan Recursive</ButtonLabel>
-                            </button>
-                            <button
-                              type="button"
-                              className="danger"
-                              title="Delete conversation Id if it has no child branches."
-                              onClick={() => void deleteConversationFromOps(false)}
-                              disabled={running}
-                            >
-                              <ButtonLabel icon="approval">Delete</ButtonLabel>
-                            </button>
-                            <button
-                              type="button"
-                              className="danger"
-                              title="Delete conversation Id and all child branches."
-                              onClick={() => void deleteConversationFromOps(true)}
-                              disabled={running}
-                            >
-                              <ButtonLabel icon="approval">Delete Recursive</ButtonLabel>
-                            </button>
-                          </>
-                        ) : null}
-                        {showConversationAgentCleanupActions ? (
-                          <>
-                            <button
-                              type="button"
-                              title="Preview deletion of all conversations owned by the active Agent id."
-                              onClick={() => void previewConversationDeleteAgent()}
-                              disabled={running}
-                            >
-                              <ButtonLabel icon="profile">Plan Agent</ButtonLabel>
-                            </button>
-                            <button
-                              type="button"
-                              className="danger"
-                              title="Delete all conversations owned by the active Agent id."
-                              onClick={() => void deleteConversationsForAgent()}
-                              disabled={running}
-                            >
-                              <ButtonLabel icon="profile">Delete Agent</ButtonLabel>
-                            </button>
-                          </>
-                        ) : null}
-                      </div>
-                    </details>
+                          <button
+                            type="button"
+                            title="Preview recursive deletion including child branches."
+                            onClick={() => void previewConversationDeleteFromOps(true)}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="conversation">Plan Recursive</ButtonLabel>
+                          </button>
+                          <button
+                            type="button"
+                            className="danger"
+                            title="Delete the Target conversation if it has no child branches."
+                            onClick={() => void deleteConversationFromOps(false)}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="approval">Delete</ButtonLabel>
+                          </button>
+                          <button
+                            type="button"
+                            className="danger"
+                            title="Delete the Target conversation and all child branches."
+                            onClick={() => void deleteConversationFromOps(true)}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="approval">Delete Recursive</ButtonLabel>
+                          </button>
+                        </>
+                      ) : null}
+                      {showConversationAgentCleanupActions ? (
+                        <>
+                          <button
+                            type="button"
+                            title="Preview deletion of all conversations owned by the active Agent."
+                            onClick={() => void previewConversationDeleteAgent()}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="profile">Plan Agent</ButtonLabel>
+                          </button>
+                          <button
+                            type="button"
+                            className="danger"
+                            title="Delete all conversations owned by the active Agent."
+                            onClick={() => void deleteConversationsForAgent()}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="profile">Delete Agent</ButtonLabel>
+                          </button>
+                        </>
+                      ) : null}
+                    </div>
                   </div>
                 </details>
               ) : null}
@@ -25526,27 +27391,34 @@ export default function App() {
                       <ButtonLabel icon="context">Recover</ButtonLabel>
                     </button>
                   </div>
+                  <ContextPreviewPayload
+                    title="Conversation JSON"
+                    meta={rawPayloadMeta(expandedConversation)}
+                    icon="conversation"
+                  >
+                    <pre>{previewJson(expandedConversation)}</pre>
+                  </ContextPreviewPayload>
                   <details
                     className="advanced-controls"
                     style={sectionThemeStyle("conversations")}
                   >
-                    <summary title="Show selected-branch staging, policy, and cleanup actions">
+                    <summary title="Show selected-branch Target, policy, and planning actions">
                       <span className="advanced-controls-icon" aria-hidden="true">
                         <AppIcon name="conversation" />
                       </span>
                       <span className="advanced-controls-copy">
-                        <strong>More</strong>
-                        <span>Stage, plan, or edit branch policy</span>
+                        <strong>Selected branch</strong>
+                        <span>Plan or edit policy</span>
                       </span>
                     </summary>
                     <div className="button-grid">
                       <button
                         type="button"
-                        title="Move this conversation id into the Target id field."
+                        title="Use this conversation as the Target."
                         onClick={() => setOpsId(expandedConversation.conversation.id)}
                         disabled={running}
                       >
-                        <ButtonLabel icon="conversation">Set id</ButtonLabel>
+                        <ButtonLabel icon="conversation">Select</ButtonLabel>
                       </button>
                       <button
                         type="button"
@@ -25685,7 +27557,7 @@ export default function App() {
                       className="advanced-controls"
                       style={sectionThemeStyle("conversations")}
                     >
-                      <summary title="Show message range staging action">
+                      <summary title="Show message range selection action">
                         <span
                           className="advanced-controls-icon"
                           aria-hidden="true"
@@ -25693,14 +27565,14 @@ export default function App() {
                           <AppIcon name="trace" />
                         </span>
                         <span className="advanced-controls-copy">
-                          <strong>More</strong>
-                          <span>Stage this message range</span>
+                          <strong>Range tools</strong>
+                          <span>Range selection</span>
                         </span>
                       </summary>
                       <div className="button-grid">
                         <button
                           type="button"
-                          title="Stage this single message index for range actions."
+                          title="Use this single message index for range actions."
                           onClick={() =>
                             setOpsValue(JSON.stringify({ from: index, to: index }))
                           }
@@ -25740,7 +27612,7 @@ export default function App() {
                   <>
                     <button
                       type="button"
-                      title="Show profile Id."
+                      title="Show the Target profile."
                       onClick={() => void showProfileFromOps()}
                       disabled={running || !opsId.trim()}
                     >
@@ -25748,7 +27620,7 @@ export default function App() {
                     </button>
                     <button
                       type="button"
-                      title="Create profile Id, using Value as the optional display name."
+                      title="Create the Target profile, using Payload as the optional display name."
                       onClick={() => void createProfileFromOps()}
                       disabled={running || !opsId.trim()}
                     >
@@ -25773,210 +27645,196 @@ export default function App() {
                 className="context-more-controls"
                 style={sectionThemeStyle("profiles")}
               >
-                <summary title="Show profile administration tools">
+                <summary title="Show profile access, bundle, and secret tools">
                   <span className="advanced-controls-icon" aria-hidden="true">
                     <AppIcon name="approval" />
                   </span>
                   <span className="advanced-controls-copy">
-                    <strong>Profile admin</strong>
-                    <span>Access, bundles, and secrets</span>
+                    <strong>Profile tools</strong>
+                    <span>Access and storage</span>
                   </span>
                 </summary>
                 <div className="context-more-grid">
-              <details
-                className="advanced-controls"
-                style={sectionThemeStyle("profiles")}
-              >
-                <summary>
-                  <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="approval" />
-                  </span>
-                  <span className="advanced-controls-copy">
-                    <strong>Profile access</strong>
-                    <span>Delete profiles and manage cross-profile grants</span>
-                  </span>
-                </summary>
-                <div className="button-grid">
-                  {showProfileAccessTargetActions ? (
-                    <button
-                      type="button"
-                      className="danger"
-                      title={
-                        currentProfile?.id === opsId.trim()
-                          ? "The active profile cannot be deleted from this session."
-                          : opsId.trim() === "main"
-                            ? "The main profile cannot be deleted."
-                            : "Delete profile Id."
-                      }
-                      onClick={() => void deleteProfileFromOps()}
-                      disabled={
-                        running ||
-                        opsId.trim() === "main" ||
-                        currentProfile?.id === opsId.trim()
-                      }
-                    >
-                      <ButtonLabel icon="approval">Delete</ButtonLabel>
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    title="List all profile grants, or grants from profile Id when Id is set."
-                    onClick={() => void listProfileGrantsForOps()}
-                    disabled={running}
+                  <details
+                    className="advanced-controls"
+                    style={sectionThemeStyle("profiles")}
                   >
-                    <ButtonLabel icon="approval">List Grants</ButtonLabel>
-                  </button>
-                  {showProfileGrantAction ? (
-                    <button
-                      type="button"
-                      title='Grant to profile Id using Value JSON like { "kind": "memory", "resource": "agent:critic" }.'
-                      onClick={() => void grantProfileFromOps()}
-                      disabled={running}
-                    >
-                      <ButtonLabel icon="approval">Grant</ButtonLabel>
-                    </button>
-                  ) : null}
-                  {showProfileAccessTargetActions ? (
-                    <button
-                      type="button"
-                      className="danger"
-                      title="Revoke profile grant Id."
-                      onClick={() => void revokeProfileGrantFromOps()}
-                      disabled={running}
-                    >
-                      <ButtonLabel icon="approval">Revoke Grant</ButtonLabel>
-                    </button>
-                  ) : null}
-                </div>
-              </details>
-              <details
-                className="advanced-controls"
-                style={sectionThemeStyle("profiles")}
-              >
-                <summary>
-                  <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="artifact" />
-                  </span>
-                  <span className="advanced-controls-copy">
-                    <strong>Profile bundles</strong>
-                    <span>Backup, export, and import profile/config/cache bundles</span>
-                  </span>
-                </summary>
-                <div className="button-grid">
-                  <button
-                    type="button"
-                    title="Export the active profile/config/cache bundle to a timestamped path."
-                    onClick={() => void backupBundleNow()}
-                    disabled={running}
-                  >
-                    <ButtonLabel icon="artifact">Backup</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    title="Export the active profile/config/cache bundle to Value, or to a timestamped /tmp path when Value is blank."
-                    onClick={() => void exportBundleFromOps()}
-                    disabled={running}
-                  >
-                    <ButtonLabel icon="artifact">Export Bundle</ButtonLabel>
-                  </button>
-                  {showProfileBundleImportAction ? (
-                    <button
-                      type="button"
-                      title="Import a profile/config/cache bundle from the path in Value."
-                      onClick={() => void importBundleFromOps()}
-                      disabled={running}
-                    >
-                      <ButtonLabel icon="artifact">Import Bundle</ButtonLabel>
-                    </button>
-                  ) : null}
-                </div>
-              </details>
-              <details
-                className="advanced-controls"
-                style={sectionThemeStyle("profiles")}
-              >
-                <summary>
-                  <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="control" />
-                  </span>
-                  <span className="advanced-controls-copy">
-                    <strong>Secret storage</strong>
-                    <span>Inspect backends and store, rotate, or delete secrets</span>
-                  </span>
-                </summary>
-                {showSecretWriteActions ? (
-                  <label>
-                    <FieldLabel icon="control" section="profiles">
-                      Secret label
-                    </FieldLabel>
-                    <input
-                      value={secretLabel}
-                      onChange={(e) => setSecretLabel(e.target.value)}
-                      placeholder="optional display label"
-                      disabled={running}
-                    />
-                  </label>
-                ) : null}
-                <div className="button-grid">
-                  <button
-                    type="button"
-                    title="List secret storage backends."
-                    onClick={() => void listSecretBackendsFromOps()}
-                    disabled={running}
-                  >
-                    <ButtonLabel icon="setup">Secret Backends</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    title="List redacted secret metadata."
-                    onClick={() => void listSecretsFromOps()}
-                    disabled={running}
-                  >
-                    <ButtonLabel icon="control">List Secrets</ButtonLabel>
-                  </button>
-                  {showSecretTargetActions ? (
-                    <button
-                      type="button"
-                      title="Show redacted metadata for secret Id."
-                      onClick={() => void showSecretFromOps()}
-                      disabled={running}
-                    >
-                      <ButtonLabel icon="control">Show Secret</ButtonLabel>
-                    </button>
-                  ) : null}
-                  {showSecretWriteActions ? (
-                    <>
+                    <summary>
+                      <span className="advanced-controls-icon" aria-hidden="true">
+                        <AppIcon name="approval" />
+                      </span>
+                      <span className="advanced-controls-copy">
+                        <strong>Profile access</strong>
+                        <span>Grants and profiles</span>
+                      </span>
+                    </summary>
+                    <div className="button-grid">
+                      {showProfileAccessTargetActions ? (
+                        <button
+                          type="button"
+                          className="danger"
+                          title={
+                            currentProfile?.id === opsId.trim()
+                              ? "The active profile cannot be deleted from this session."
+                              : opsId.trim() === "main"
+                                ? "The main profile cannot be deleted."
+                                : "Delete the Target profile."
+                          }
+                          onClick={() => void deleteProfileFromOps()}
+                          disabled={
+                            running ||
+                            opsId.trim() === "main" ||
+                            currentProfile?.id === opsId.trim()
+                          }
+                        >
+                          <ButtonLabel icon="approval">Delete</ButtonLabel>
+                        </button>
+                      ) : null}
                       <button
                         type="button"
-                        title="Store secret Id using Value as the secret value."
-                        onClick={() => void setSecretFromOps()}
+                        title="List all profile grants, or grants from the Target profile when Target is set."
+                        onClick={() => void listProfileGrantsForOps()}
                         disabled={running}
                       >
-                        <ButtonLabel icon="control">Store Secret</ButtonLabel>
+                        <ButtonLabel icon="approval">List Grants</ButtonLabel>
+                      </button>
+                      {showProfileGrantAction ? (
+                        <button
+                          type="button"
+                          title='Grant to the Target profile using Payload JSON like { "kind": "memory", "resource": "agent:critic" }.'
+                          onClick={() => void grantProfileFromOps()}
+                          disabled={running}
+                        >
+                          <ButtonLabel icon="approval">Grant</ButtonLabel>
+                        </button>
+                      ) : null}
+                      {showProfileAccessTargetActions ? (
+                        <button
+                          type="button"
+                          className="danger"
+                          title="Revoke the Target profile grant."
+                          onClick={() => void revokeProfileGrantFromOps()}
+                          disabled={running}
+                        >
+                          <ButtonLabel icon="approval">Revoke Grant</ButtonLabel>
+                        </button>
+                      ) : null}
+                    </div>
+                  </details>
+                  <div className="button-grid context-more-grid-row">
+                    <button
+                      type="button"
+                      title="Export the active profile bundle to a timestamped path."
+                      onClick={() => void backupBundleNow()}
+                      disabled={running}
+                    >
+                      <ButtonLabel icon="artifact">Backup</ButtonLabel>
+                    </button>
+                    <button
+                      type="button"
+                      title="Export the active profile bundle to Payload, or to a timestamped /tmp path when Payload is blank."
+                      onClick={() => void exportBundleFromOps()}
+                      disabled={running}
+                    >
+                      <ButtonLabel icon="artifact">Export</ButtonLabel>
+                    </button>
+                    {showProfileBundleImportAction ? (
+                      <button
+                        type="button"
+                        title="Import a profile bundle from the path in Payload."
+                        onClick={() => void importBundleFromOps()}
+                        disabled={running}
+                      >
+                        <ButtonLabel icon="artifact">Import</ButtonLabel>
+                      </button>
+                    ) : null}
+                  </div>
+                  <details
+                    className="advanced-controls"
+                    style={sectionThemeStyle("profiles")}
+                  >
+                    <summary>
+                      <span className="advanced-controls-icon" aria-hidden="true">
+                        <AppIcon name="control" />
+                      </span>
+                      <span className="advanced-controls-copy">
+                        <strong>Secret storage</strong>
+                        <span>Storage and records</span>
+                      </span>
+                    </summary>
+                    {showSecretWriteActions ? (
+                      <label>
+                        <FieldLabel icon="control" section="profiles">
+                          Secret label
+                        </FieldLabel>
+                        <input
+                          value={secretLabel}
+                          onChange={(e) => setSecretLabel(e.target.value)}
+                          placeholder="optional display label"
+                          disabled={running}
+                        />
+                      </label>
+                    ) : null}
+                    <div className="button-grid">
+                      <button
+                        type="button"
+                        title="Review available secret storage options."
+                        onClick={() => void listSecretBackendsFromOps()}
+                        disabled={running}
+                      >
+                        <ButtonLabel icon="setup">Storage</ButtonLabel>
                       </button>
                       <button
                         type="button"
-                        title="Rotate secret Id using Value as the new secret value."
-                        onClick={() => void rotateSecretFromOps()}
+                        title="List redacted secret records."
+                        onClick={() => void listSecretsFromOps()}
                         disabled={running}
                       >
-                        <ButtonLabel icon="control">Rotate Secret</ButtonLabel>
+                        <ButtonLabel icon="control">List Secrets</ButtonLabel>
                       </button>
-                    </>
-                  ) : null}
-                  {showSecretTargetActions ? (
-                    <button
-                      type="button"
-                      className="danger"
-                      title="Delete secret Id."
-                      onClick={() => void deleteSecretFromOps()}
-                      disabled={running}
-                    >
-                      <ButtonLabel icon="approval">Delete Secret</ButtonLabel>
-                    </button>
-                  ) : null}
-                </div>
-              </details>
+                      {showSecretTargetActions ? (
+                        <button
+                          type="button"
+                          title="Show the redacted record for the Target secret."
+                          onClick={() => void showSecretFromOps()}
+                          disabled={running}
+                        >
+                          <ButtonLabel icon="control">Show Secret</ButtonLabel>
+                        </button>
+                      ) : null}
+                      {showSecretWriteActions ? (
+                        <>
+                          <button
+                            type="button"
+                            title="Store the Target secret using Payload as the secret value."
+                            onClick={() => void setSecretFromOps()}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="control">Store Secret</ButtonLabel>
+                          </button>
+                          <button
+                            type="button"
+                            title="Rotate the Target secret using Payload as the new secret value."
+                            onClick={() => void rotateSecretFromOps()}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="control">Rotate Secret</ButtonLabel>
+                          </button>
+                        </>
+                      ) : null}
+                      {showSecretTargetActions ? (
+                        <button
+                          type="button"
+                          className="danger"
+                          title="Delete the Target secret."
+                          onClick={() => void deleteSecretFromOps()}
+                          disabled={running}
+                        >
+                          <ButtonLabel icon="approval">Delete Secret</ButtonLabel>
+                        </button>
+                      ) : null}
+                    </div>
+                  </details>
                 </div>
               </details>
               {profileSummaries.length ? (
@@ -26021,7 +27879,7 @@ export default function App() {
                         />
                         <VisualMetric
                           icon="artifact"
-                          label="config"
+                          label="settings"
                           value={fileName(profile.path)}
                           section="profiles"
                           tone="ok"
@@ -26039,7 +27897,7 @@ export default function App() {
                             <AppIcon name="artifact" />
                           </span>
                           <div className="profile-detail-copy">
-                            <strong>Config path</strong>
+                            <strong>Settings path</strong>
                             <span title={profile.path}>
                               {fileName(profile.path)}
                             </span>
@@ -26068,7 +27926,7 @@ export default function App() {
                         className="advanced-controls"
                         style={sectionThemeStyle("profiles")}
                       >
-                        <summary title="Show profile staging and deletion actions">
+                        <summary title="Show profile record selection and deletion actions">
                           <span
                             className="advanced-controls-icon"
                             aria-hidden="true"
@@ -26076,18 +27934,18 @@ export default function App() {
                             <AppIcon name="profile" />
                           </span>
                           <span className="advanced-controls-copy">
-                            <strong>More</strong>
-                            <span>Stage or delete this profile</span>
+                            <strong>Profile actions</strong>
+                            <span>Profile record</span>
                           </span>
                         </summary>
                         <div className="button-grid">
                           <button
                             type="button"
-                            title="Move this profile id into the Target id field."
+                            title="Use this profile as the Target."
                             onClick={() => setOpsId(profile.id)}
                             disabled={running}
                           >
-                            <ButtonLabel icon="profile">Set id</ButtonLabel>
+                            <ButtonLabel icon="profile">Select</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -26112,6 +27970,13 @@ export default function App() {
                       </details>
                     </div>
                   ))}
+                  <ContextPreviewPayload
+                    title="Profiles JSON"
+                    meta={rawPayloadMeta(profileSummaries)}
+                    icon="profile"
+                  >
+                    <pre>{previewJson(profileSummaries)}</pre>
+                  </ContextPreviewPayload>
                 </div>
               ) : null}
               {secretBackends.length ? (
@@ -26152,7 +28017,7 @@ export default function App() {
                         />
                         <VisualMetric
                           icon="setup"
-                          label="backend"
+                          label="storage"
                           value={backend.id}
                           section="profiles"
                           tone={secretBackendTone(backend)}
@@ -26174,7 +28039,7 @@ export default function App() {
                             <AppIcon name="control" />
                           </span>
                           <div className="profile-detail-copy">
-                            <strong>Backend detail</strong>
+                            <strong>Storage detail</strong>
                             <span>{backend.description}</span>
                           </div>
                         </div>
@@ -26205,6 +28070,13 @@ export default function App() {
                       </div>
                     </div>
                   ))}
+                  <ContextPreviewPayload
+                    title="Secret Storage JSON"
+                    meta={rawPayloadMeta(secretBackends)}
+                    icon="control"
+                  >
+                    <pre>{previewJson(secretBackends)}</pre>
+                  </ContextPreviewPayload>
                 </div>
               ) : null}
               {secretRecords.length ? (
@@ -26225,7 +28097,7 @@ export default function App() {
                       <div className="ingestion-metrics">
                         <VisualMetric
                           icon="control"
-                          label="backend"
+                          label="storage"
                           value={record.backend}
                           section="profiles"
                           tone="ok"
@@ -26264,7 +28136,7 @@ export default function App() {
                             <AppIcon name="control" />
                           </span>
                           <div className="profile-detail-copy">
-                            <strong>Secret id</strong>
+                            <strong>Secret record</strong>
                             <span>{record.id}</span>
                           </div>
                         </div>
@@ -26298,7 +28170,7 @@ export default function App() {
                       <div className="mini-actions">
                         <button
                           type="button"
-                          title="Show this secret metadata."
+                          title="Show this redacted secret record."
                           onClick={() => void showSecretFromOps(record.id)}
                           disabled={running}
                         >
@@ -26309,7 +28181,7 @@ export default function App() {
                         className="advanced-controls"
                         style={sectionThemeStyle("profiles")}
                       >
-                        <summary title="Show secret staging and deletion actions">
+                        <summary title="Show secret selection and deletion actions">
                           <span
                             className="advanced-controls-icon"
                             aria-hidden="true"
@@ -26317,18 +28189,18 @@ export default function App() {
                             <AppIcon name="control" />
                           </span>
                           <span className="advanced-controls-copy">
-                            <strong>More</strong>
-                            <span>Stage or delete this secret</span>
+                            <strong>Secret tools</strong>
+                            <span>Secret record</span>
                           </span>
                         </summary>
                         <div className="button-grid">
                           <button
                             type="button"
-                            title="Move this secret id into the Target id field."
+                            title="Use this secret as the Target."
                             onClick={() => setOpsId(record.id)}
                             disabled={running}
                           >
-                            <ButtonLabel icon="control">Set id</ButtonLabel>
+                            <ButtonLabel icon="control">Select</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -26343,6 +28215,13 @@ export default function App() {
                       </details>
                     </div>
                   ))}
+                  <ContextPreviewPayload
+                    title="Secrets JSON"
+                    meta={rawPayloadMeta(secretRecords)}
+                    icon="control"
+                  >
+                    <pre>{previewJson(secretRecords)}</pre>
+                  </ContextPreviewPayload>
                 </div>
               ) : null}
               {secretStatus ? (
@@ -26426,7 +28305,7 @@ export default function App() {
                         className="advanced-controls"
                         style={sectionThemeStyle("profiles")}
                       >
-                        <summary title="Show grant staging and revocation actions">
+                        <summary title="Show grant selection and revocation actions">
                           <span
                             className="advanced-controls-icon"
                             aria-hidden="true"
@@ -26434,18 +28313,18 @@ export default function App() {
                             <AppIcon name="approval" />
                           </span>
                           <span className="advanced-controls-copy">
-                            <strong>More</strong>
-                            <span>Stage or revoke this grant</span>
+                            <strong>Grant tools</strong>
+                            <span>Select and revoke</span>
                           </span>
                         </summary>
                         <div className="button-grid">
                           <button
                             type="button"
-                            title="Move this grant id into the Target id field."
+                            title="Use this grant as the Target."
                             onClick={() => setOpsId(grant.id)}
                             disabled={running}
                           >
-                            <ButtonLabel icon="approval">Set id</ButtonLabel>
+                            <ButtonLabel icon="approval">Select</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -26460,6 +28339,13 @@ export default function App() {
                       </details>
                     </div>
                   ))}
+                  <ContextPreviewPayload
+                    title="Grants JSON"
+                    meta={rawPayloadMeta(profileGrants)}
+                    icon="approval"
+                  >
+                    <pre>{previewJson(profileGrants)}</pre>
+                  </ContextPreviewPayload>
                 </div>
               ) : null}
               {bundleStatus ? (
@@ -26491,7 +28377,7 @@ export default function App() {
                 {showMemoryCreateAction ? (
                   <button
                     type="button"
-                    title="Create a memory from Value."
+                    title="Create a memory from Payload."
                     onClick={() => void createMemoryFromOps()}
                     disabled={running}
                   >
@@ -26504,13 +28390,13 @@ export default function App() {
                 style={sectionThemeStyle("memory")}
                 open={showMemoryContextControls}
               >
-                <summary title="Show topic filters, backend checks, and context preview">
+                <summary title="Show topic filters, memory storage checks, and context preview">
                   <span className="advanced-controls-icon" aria-hidden="true">
                     <AppIcon name="context" />
                   </span>
                   <span className="advanced-controls-copy">
                     <strong>Memory context</strong>
-                    <span>Topics, backends, preview</span>
+                    <span>Context filters</span>
                   </span>
                 </summary>
                 <label>
@@ -26527,19 +28413,19 @@ export default function App() {
                 <div className="button-grid">
                   <button
                     type="button"
-                    title="List available memory backends."
+                    title="Review memory storage options."
                     onClick={() => void reviewMemoryBackends()}
                     disabled={running}
                   >
-                    <ButtonLabel icon="setup">Backends</ButtonLabel>
+                    <ButtonLabel icon="setup">Storage</ButtonLabel>
                   </button>
                   <button
                     type="button"
-                    title="Probe the selected memory backend and topic filter."
+                    title="Check the selected memory storage and topic filter."
                     onClick={() => void probeMemoryBackend()}
                     disabled={running}
                   >
-                    <ButtonLabel icon="trace">Probe</ButtonLabel>
+                    <ButtonLabel icon="trace">Check</ButtonLabel>
                   </button>
                   <button
                     type="button"
@@ -26566,8 +28452,8 @@ export default function App() {
                           <AppIcon name="memory" />
                         </span>
                         <div className="memory-card-title">
-                          <strong>{backend.id}</strong>
-                          <span>{backend.name}</span>
+                          <strong>{backend.name || backend.id}</strong>
+                          <span>{backend.id}</span>
                         </div>
                       </div>
                       <div className="memory-metrics">
@@ -26625,7 +28511,7 @@ export default function App() {
                             <AppIcon name="tools" />
                           </span>
                           <div className="memory-detail-copy">
-                            <strong>Backend capabilities</strong>
+                            <strong>Storage capabilities</strong>
                             <span>
                               {[
                                 backend.supports_write ? "write" : "read-only",
@@ -26665,7 +28551,7 @@ export default function App() {
                       <div className="mini-actions">
                         <button
                           type="button"
-                          title="Use this backend for subsequent runs and memory operations."
+                          title="Use this storage option for subsequent runs and memory operations."
                           onClick={() => stageMemoryBackendSelection(backend.id)}
                           disabled={running}
                         >
@@ -26673,15 +28559,15 @@ export default function App() {
                         </button>
                         <button
                           type="button"
-                          title="Probe this backend with the current topic filter."
+                          title="Check this storage option with the current topic filter."
                           onClick={() => void probeMemoryBackend(backend.id)}
                           disabled={running}
                         >
-                          <ButtonLabel icon="trace">Probe</ButtonLabel>
+                          <ButtonLabel icon="trace">Check</ButtonLabel>
                         </button>
                         <button
                           type="button"
-                          title="Preview the next context with this backend and current topic filter."
+                          title="Preview the next context with this storage option and current topic filter."
                           onClick={() => void previewMemoryBackend(backend.id)}
                           disabled={running}
                         >
@@ -26690,6 +28576,13 @@ export default function App() {
                       </div>
                     </div>
                   ))}
+                  <ContextPreviewPayload
+                    title="Storage JSON"
+                    meta={rawPayloadMeta(memoryBackends)}
+                    icon="memory"
+                  >
+                    <pre>{previewJson(memoryBackends)}</pre>
+                  </ContextPreviewPayload>
                 </div>
               ) : null}
               {memoryBackendProbe ? (
@@ -26705,8 +28598,11 @@ export default function App() {
                         <AppIcon name="trace" />
                       </span>
                       <div className="memory-card-title">
-                        <strong>{memoryBackendProbe.backend}</strong>
-                        <span>{memoryBackendProbe.ok ? "ok" : "failed"}</span>
+                        <strong>Storage check</strong>
+                        <span>
+                          {memoryBackendProbe.backend} /{" "}
+                          {memoryBackendProbe.ok ? "ok" : "failed"}
+                        </span>
                       </div>
                     </div>
                     <div className="memory-metrics">
@@ -26719,7 +28615,7 @@ export default function App() {
                       />
                       <VisualMetric
                         icon="setup"
-                        label="configured"
+                        label="ready"
                         value={memoryBackendProbe.configured ? "yes" : "no"}
                         section="memory"
                         tone={
@@ -26762,11 +28658,11 @@ export default function App() {
                           <AppIcon name="setup" />
                         </span>
                         <div className="memory-detail-copy">
-                          <strong>Configuration</strong>
+                          <strong>Readiness</strong>
                           <span>
                             {memoryBackendProbe.configured
-                              ? "configured"
-                              : "not configured"}
+                              ? "ready"
+                              : "not ready"}
                           </span>
                         </div>
                       </div>
@@ -26813,7 +28709,7 @@ export default function App() {
                           <AppIcon name="prompt" />
                         </span>
                         <div className="memory-detail-copy">
-                          <strong>Backend description</strong>
+                          <strong>Storage description</strong>
                           <span>{memoryBackendProbe.descriptor.description}</span>
                         </div>
                       </div>
@@ -26826,16 +28722,23 @@ export default function App() {
                             <AppIcon name="approval" />
                           </span>
                           <div className="memory-detail-copy">
-                            <strong>Probe error</strong>
+                            <strong>Check error</strong>
                             <span>{memoryBackendProbe.error}</span>
                           </div>
                         </div>
                       ) : null}
                     </div>
+                    <ContextPreviewPayload
+                      title="Check JSON"
+                      meta={rawPayloadMeta(memoryBackendProbe)}
+                      icon="trace"
+                    >
+                      <pre>{previewJson(memoryBackendProbe)}</pre>
+                    </ContextPreviewPayload>
                     <div className="mini-actions">
                       <button
                         type="button"
-                        title="Use this probed backend and topic filter for subsequent runs."
+                        title="Use this checked storage option and topic filter for subsequent runs."
                         onClick={() => stageMemoryBackendProbe(memoryBackendProbe)}
                         disabled={running}
                       >
@@ -26843,7 +28746,7 @@ export default function App() {
                       </button>
                       <button
                         type="button"
-                        title="Preview the next context with this probed backend and topic filter."
+                        title="Preview the next context with this checked storage option and topic filter."
                         onClick={() =>
                           void previewMemoryBackend(
                             memoryBackendProbe.backend,
@@ -26855,6 +28758,602 @@ export default function App() {
                         <ButtonLabel icon="context">Preview</ButtonLabel>
                       </button>
                     </div>
+                  </div>
+                </div>
+              ) : null}
+              {memoryAccessReport ? (
+                <div className="memory-review">
+                  <div className="memory-card ok">
+                    <div className="memory-card-head with-icon">
+                      <span className="memory-card-icon ok" aria-hidden="true">
+                        <AppIcon name="profile" />
+                      </span>
+                      <div className="memory-card-title">
+                        <strong>Memory access</strong>
+                        <span>{memoryAccessReport.active_profile}</span>
+                      </div>
+                    </div>
+                    <div className="memory-metrics">
+                      <VisualMetric
+                        icon="memory"
+                        label="local"
+                        value={memoryAccessReport.local_records}
+                        section="memory"
+                        tone={memoryAccessReport.local_records ? "ok" : "neutral"}
+                      />
+                      <VisualMetric
+                        icon="profile"
+                        label="granted"
+                        value={memoryAccessReport.granted_records}
+                        section="memory"
+                        tone={
+                          memoryAccessReport.granted_records ? "warning" : "neutral"
+                        }
+                      />
+                      <VisualMetric
+                        icon="context"
+                        label="topics"
+                        value={memoryAccessReport.topics.length}
+                        section="memory"
+                        tone={memoryAccessReport.topics.length ? "ok" : "neutral"}
+                      />
+                      <VisualMetric
+                        icon="approval"
+                        label="grants"
+                        value={memoryAccessReport.grants.length}
+                        section="memory"
+                        tone={memoryAccessReport.grants.length ? "warning" : "neutral"}
+                      />
+                    </div>
+                    <div className="memory-detail-list">
+                      <div className="memory-detail-row ok">
+                        <span className="memory-detail-icon ok" aria-hidden="true">
+                          <AppIcon name="profile" />
+                        </span>
+                        <div className="memory-detail-copy">
+                          <strong>Active profile</strong>
+                          <span>{memoryAccessReport.active_profile}</span>
+                          <span>
+                            {memoryAccessReport.records.length} visible memory
+                            record
+                            {memoryAccessReport.records.length === 1 ? "" : "s"}
+                          </span>
+                        </div>
+                      </div>
+                      <div
+                        className={
+                          memoryAccessReport.granted_records
+                            ? "memory-detail-row warning"
+                            : "memory-detail-row"
+                        }
+                      >
+                        <span
+                          className={
+                            memoryAccessReport.granted_records
+                              ? "memory-detail-icon warning"
+                              : "memory-detail-icon"
+                          }
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="approval" />
+                        </span>
+                        <div className="memory-detail-copy">
+                          <strong>Access scope</strong>
+                          <span>
+                            {memoryAccessReport.granted_records
+                              ? `${memoryAccessReport.granted_records} granted through ${memoryAccessReport.grants.length} profile grant(s)`
+                              : "local profile memory only"}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="memory-detail-row">
+                        <span className="memory-detail-icon" aria-hidden="true">
+                          <AppIcon name="context" />
+                        </span>
+                        <div className="memory-detail-copy">
+                          <strong>Filters</strong>
+                          <span>
+                            topics{" "}
+                            {memoryAccessReport.topics.length
+                              ? memoryAccessReport.topics.join(", ")
+                              : "none"}
+                          </span>
+                          <span>
+                            agents{" "}
+                            {memoryAccessReport.agents.length
+                              ? memoryAccessReport.agents.join(", ")
+                              : "any"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <ContextPreviewPayload
+                      title="Access JSON"
+                      meta={rawPayloadMeta(memoryAccessReport)}
+                      icon="profile"
+                    >
+                      <pre>{previewJson(memoryAccessReport)}</pre>
+                    </ContextPreviewPayload>
+                  </div>
+                </div>
+              ) : null}
+              {memoryPendingGenerationResult ? (
+                <div className="memory-review">
+                  <div
+                    className={`memory-card ${memoryPendingGenerationTone(
+                      memoryPendingGenerationResult,
+                    )}`}
+                  >
+                    <div className="memory-card-head with-icon">
+                      <span
+                        className={`memory-card-icon ${memoryPendingGenerationTone(
+                          memoryPendingGenerationResult,
+                        )}`}
+                        aria-hidden="true"
+                      >
+                        <AppIcon name="trace" />
+                      </span>
+                      <div className="memory-card-title">
+                        <strong>Pending memory</strong>
+                        <span>{memoryPendingGenerationResult.target}</span>
+                      </div>
+                    </div>
+                    <div className="memory-metrics">
+                      <VisualMetric
+                        icon="memory"
+                        label="generated"
+                        value={memoryPendingGenerationResult.generated_count}
+                        section="memory"
+                        tone={
+                          memoryPendingGenerationResult.generated_count
+                            ? "ok"
+                            : "neutral"
+                        }
+                      />
+                      <VisualMetric
+                        icon="trace"
+                        label="attempts"
+                        value={memoryPendingGenerationResult.attempted}
+                        section="memory"
+                        tone={
+                          memoryPendingGenerationResult.attempted
+                            ? "ok"
+                            : "neutral"
+                        }
+                      />
+                      <VisualMetric
+                        icon="context"
+                        label="current"
+                        value={memoryPendingGenerationResult.up_to_date}
+                        section="memory"
+                        tone={
+                          memoryPendingGenerationResult.up_to_date
+                            ? "neutral"
+                            : "ok"
+                        }
+                      />
+                      <VisualMetric
+                        icon="approval"
+                        label="errors"
+                        value={memoryPendingGenerationResult.errors.length}
+                        section="memory"
+                        tone={
+                          memoryPendingGenerationResult.errors.length
+                            ? "danger"
+                            : "ok"
+                        }
+                      />
+                    </div>
+                    <div className="memory-detail-list">
+                      <div
+                        className={
+                          memoryPendingGenerationResult.generated_count
+                            ? "memory-detail-row ok"
+                            : "memory-detail-row"
+                        }
+                      >
+                        <span
+                          className={
+                            memoryPendingGenerationResult.generated_count
+                              ? "memory-detail-icon ok"
+                              : "memory-detail-icon"
+                          }
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="memory" />
+                        </span>
+                        <div className="memory-detail-copy">
+                          <strong>Generated records</strong>
+                          <span>
+                            {`${memoryPendingGenerationResult.generated_count} records from ${memoryPendingGenerationResult.attempted} attempted conversation range(s)`}
+                          </span>
+                        </div>
+                      </div>
+                      <div
+                        className={
+                          memoryPendingGenerationResult.policy_skipped
+                            ? "memory-detail-row warning"
+                            : "memory-detail-row"
+                        }
+                      >
+                        <span
+                          className={
+                            memoryPendingGenerationResult.policy_skipped
+                              ? "memory-detail-icon warning"
+                              : "memory-detail-icon"
+                          }
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="approval" />
+                        </span>
+                        <div className="memory-detail-copy">
+                          <strong>Conversation policy</strong>
+                          <span>
+                            {memoryPendingGenerationResult.policy_skipped
+                              ? `${memoryPendingGenerationResult.policy_skipped} skipped by policy`
+                              : "no policy skips"}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="memory-detail-row">
+                        <span className="memory-detail-icon" aria-hidden="true">
+                          <AppIcon name="context" />
+                        </span>
+                        <div className="memory-detail-copy">
+                          <strong>Scope</strong>
+                          <span>
+                            {[
+                              `target ${memoryPendingGenerationResult.target}`,
+                              memoryPendingGenerationResult.topics.length
+                                ? `topics ${memoryPendingGenerationResult.topics.join(
+                                    ", ",
+                                  )}`
+                                : "topics none",
+                              `${memoryPendingGenerationResult.up_to_date} already current`,
+                            ].join(" / ")}
+                          </span>
+                        </div>
+                      </div>
+                      {memoryPendingGenerationResult.errors.length ? (
+                        <div className="memory-detail-row danger">
+                          <span
+                            className="memory-detail-icon danger"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="approval" />
+                          </span>
+                          <div className="memory-detail-copy">
+                            <strong>Generation errors</strong>
+                            <span>
+                              {memoryPendingGenerationResult.errors
+                                .map(
+                                  (error) =>
+                                    `${error.conversation_id} ${error.range}: ${error.error}`,
+                                )
+                                .join(" / ")}
+                            </span>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                    <ContextPreviewPayload
+                      title="Pending Memory JSON"
+                      meta={rawPayloadMeta(memoryPendingGenerationResult)}
+                      icon="trace"
+                    >
+                      <pre>{previewJson(memoryPendingGenerationResult)}</pre>
+                    </ContextPreviewPayload>
+                  </div>
+                </div>
+              ) : null}
+              {memoryExportResult ? (
+                <div className="memory-review">
+                  <div className={`memory-card ${memoryExportTone(memoryExportResult)}`}>
+                    <div className="memory-card-head with-icon">
+                      <span
+                        className={`memory-card-icon ${memoryExportTone(
+                          memoryExportResult,
+                        )}`}
+                        aria-hidden="true"
+                      >
+                        <AppIcon name="artifact" />
+                      </span>
+                      <div className="memory-card-title">
+                        <strong>Memory export</strong>
+                        <span>{memoryExportScopeLabel(memoryExportResult)}</span>
+                      </div>
+                    </div>
+                    <div className="memory-metrics">
+                      <VisualMetric
+                        icon="memory"
+                        label="records"
+                        value={memoryExportResult.records.length}
+                        section="memory"
+                        tone={
+                          memoryExportResult.records.length ? "ok" : "neutral"
+                        }
+                      />
+                      <VisualMetric
+                        icon="artifact"
+                        label="file"
+                        value={fileName(memoryExportResult.path)}
+                        section="memory"
+                        tone="ok"
+                        title={memoryExportResult.path}
+                      />
+                      <VisualMetric
+                        icon="profile"
+                        label="scope"
+                        value={memoryExportResult.user ? "user" : "agent"}
+                        section="memory"
+                        tone={memoryExportResult.user ? "ok" : "neutral"}
+                      />
+                      <VisualMetric
+                        icon="context"
+                        label="agent"
+                        value={
+                          memoryExportResult.agent_id
+                            ? previewText(memoryExportResult.agent_id, 18)
+                            : "none"
+                        }
+                        section="memory"
+                        tone={memoryExportResult.agent_id ? "ok" : "neutral"}
+                        title={memoryExportResult.agent_id ?? "none"}
+                      />
+                    </div>
+                    <div className="memory-detail-list">
+                      <div
+                        className={
+                          memoryExportResult.records.length
+                            ? "memory-detail-row ok"
+                            : "memory-detail-row"
+                        }
+                      >
+                        <span
+                          className={
+                            memoryExportResult.records.length
+                              ? "memory-detail-icon ok"
+                              : "memory-detail-icon"
+                          }
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="memory" />
+                        </span>
+                        <div className="memory-detail-copy">
+                          <strong>Exported records</strong>
+                          <span>
+                            {`${memoryExportResult.records.length} ${memoryExportScopeLabel(
+                              memoryExportResult,
+                            )} memory record(s)`}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="memory-detail-row">
+                        <span className="memory-detail-icon" aria-hidden="true">
+                          <AppIcon name="artifact" />
+                        </span>
+                        <div className="memory-detail-copy">
+                          <strong>Export path</strong>
+                          <span title={memoryExportResult.path}>
+                            {previewText(memoryExportResult.path, 120)}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="memory-detail-row">
+                        <span className="memory-detail-icon" aria-hidden="true">
+                          <AppIcon name="profile" />
+                        </span>
+                        <div className="memory-detail-copy">
+                          <strong>Scope</strong>
+                          <span>
+                            {[
+                              memoryExportResult.user
+                                ? "user memory"
+                                : "profile memory",
+                              memoryExportResult.agent_id
+                                ? `agent ${memoryExportResult.agent_id}`
+                                : "all agents",
+                            ].join(" / ")}
+                          </span>
+                        </div>
+                      </div>
+                      {memoryExportResult.records.length ? (
+                        <div className="memory-detail-row ok">
+                          <span
+                            className="memory-detail-icon ok"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="trace" />
+                          </span>
+                          <div className="memory-detail-copy">
+                            <strong>Record ids</strong>
+                            <span>
+                              {memoryExportResult.records
+                                .map((record) => record.id)
+                                .join(", ")}
+                            </span>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                    <ContextPreviewPayload
+                      title="Memory Export JSON"
+                      meta={rawPayloadMeta(memoryExportResult)}
+                      icon="artifact"
+                    >
+                      <pre>{previewJson(memoryExportResult)}</pre>
+                    </ContextPreviewPayload>
+                  </div>
+                </div>
+              ) : null}
+              {memoryClassificationResult ? (
+                <div className="memory-review">
+                  <div
+                    className={`memory-card ${memoryClassificationTone(
+                      memoryClassificationResult,
+                    )}`}
+                  >
+                    <div className="memory-card-head with-icon">
+                      <span
+                        className={`memory-card-icon ${memoryClassificationTone(
+                          memoryClassificationResult,
+                        )}`}
+                        aria-hidden="true"
+                      >
+                        <AppIcon name="skill" />
+                      </span>
+                      <div className="memory-card-title">
+                        <strong>Memory classification</strong>
+                        <span>{memoryClassificationResult.id}</span>
+                      </div>
+                    </div>
+                    <div className="memory-metrics">
+                      <VisualMetric
+                        icon="memory"
+                        label="target"
+                        value={previewText(memoryClassificationResult.id, 18)}
+                        section="memory"
+                        tone="neutral"
+                        title={memoryClassificationResult.id}
+                      />
+                      <VisualMetric
+                        icon="skill"
+                        label="mode"
+                        value={
+                          memoryClassificationResult.applied
+                            ? "applied"
+                            : "preview"
+                        }
+                        section="memory"
+                        tone={memoryClassificationTone(memoryClassificationResult)}
+                      />
+                      <VisualMetric
+                        icon="context"
+                        label="topics"
+                        value={
+                          memoryClassificationResult.classification.topics
+                            ?.length ?? 0
+                        }
+                        section="memory"
+                        tone={
+                          memoryClassificationResult.classification.topics?.length
+                            ? "ok"
+                            : "neutral"
+                        }
+                      />
+                      <VisualMetric
+                        icon="tools"
+                        label="tasks"
+                        value={
+                          memoryClassificationResult.classification.tasks
+                            ?.length ?? 0
+                        }
+                        section="memory"
+                        tone={
+                          memoryClassificationResult.classification.tasks?.length
+                            ? "ok"
+                            : "neutral"
+                        }
+                      />
+                    </div>
+                    <div className="memory-detail-list">
+                      <div
+                        className={
+                          memoryClassificationResult.applied
+                            ? "memory-detail-row ok"
+                            : "memory-detail-row"
+                        }
+                      >
+                        <span
+                          className={
+                            memoryClassificationResult.applied
+                              ? "memory-detail-icon ok"
+                              : "memory-detail-icon"
+                          }
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="skill" />
+                        </span>
+                        <div className="memory-detail-copy">
+                          <strong>Apply mode</strong>
+                          <span>
+                            {memoryClassificationResult.record
+                              ? `updated ${memoryClassificationResult.record.id}`
+                              : memoryClassificationResult.applied
+                                ? "applied"
+                                : "preview only"}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="memory-detail-row">
+                        <span className="memory-detail-icon" aria-hidden="true">
+                          <AppIcon name="setup" />
+                        </span>
+                        <div className="memory-detail-copy">
+                          <strong>Model</strong>
+                          <span title={memoryClassificationResult.model}>
+                            {previewText(memoryClassificationResult.model, 120)}
+                          </span>
+                        </div>
+                      </div>
+                      {memoryClassificationResult.classification.topics
+                        ?.length ? (
+                        <div className="memory-detail-row ok">
+                          <span
+                            className="memory-detail-icon ok"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="memory" />
+                          </span>
+                          <div className="memory-detail-copy">
+                            <strong>Topics</strong>
+                            <span>
+                              {memoryClassificationResult.classification.topics.join(
+                                ", ",
+                              )}
+                            </span>
+                          </div>
+                        </div>
+                      ) : null}
+                      {memoryClassificationResult.classification.tasks?.length ? (
+                        <div className="memory-detail-row ok">
+                          <span
+                            className="memory-detail-icon ok"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="tools" />
+                          </span>
+                          <div className="memory-detail-copy">
+                            <strong>Tasks</strong>
+                            <span>
+                              {memoryClassificationResult.classification.tasks.join(
+                                ", ",
+                              )}
+                            </span>
+                          </div>
+                        </div>
+                      ) : null}
+                      {memoryClassificationResult.classification.source ? (
+                        <div className="memory-detail-row">
+                          <span className="memory-detail-icon" aria-hidden="true">
+                            <AppIcon name="trace" />
+                          </span>
+                          <div className="memory-detail-copy">
+                            <strong>Source</strong>
+                            <span>
+                              {memoryClassificationResult.classification.source}
+                            </span>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                    <ContextPreviewPayload
+                      title="Memory Classification JSON"
+                      meta={rawPayloadMeta(memoryClassificationResult)}
+                      icon="skill"
+                    >
+                      <pre>{previewJson(memoryClassificationResult)}</pre>
+                    </ContextPreviewPayload>
                   </div>
                 </div>
               ) : null}
@@ -27061,7 +29560,7 @@ export default function App() {
                       <div className="mini-actions">
                         <button
                           type="button"
-                          title="Load this memory content into Value for editing."
+                          title="Load this memory content into Payload for editing."
                           onClick={() => {
                             setOpsId(record.id);
                             setOpsValue(record.content);
@@ -27075,7 +29574,7 @@ export default function App() {
                         className="advanced-controls"
                         style={sectionThemeStyle("memory")}
                       >
-                        <summary title="Show memory staging and classification actions">
+                        <summary title="Show memory record selection and classification actions">
                           <span
                             className="advanced-controls-icon"
                             aria-hidden="true"
@@ -27083,22 +29582,22 @@ export default function App() {
                             <AppIcon name="memory" />
                           </span>
                           <span className="advanced-controls-copy">
-                            <strong>More</strong>
-                            <span>Stage or classify this memory</span>
+                            <strong>Record actions</strong>
+                            <span>Select and classify</span>
                           </span>
                         </summary>
                         <div className="button-grid">
                           <button
                             type="button"
-                            title="Move this memory id into the Target id field."
+                            title="Use this memory as the Target."
                             onClick={() => setOpsId(record.id)}
                             disabled={running}
                           >
-                            <ButtonLabel icon="memory">Set id</ButtonLabel>
+                            <ButtonLabel icon="memory">Select</ButtonLabel>
                           </button>
                           <button
                             type="button"
-                            title="Classify this memory with the selected model or configured default."
+                            title="Classify this memory with the selected model or default memory model."
                             onClick={() => void classifyMemoryFromOps(record.id)}
                             disabled={running}
                           >
@@ -27108,185 +29607,184 @@ export default function App() {
                       </details>
                     </div>
                   ))}
+                  <ContextPreviewPayload
+                    title="Memory JSON"
+                    meta={rawPayloadMeta(memoryRecords)}
+                    icon="memory"
+                  >
+                    <pre>{previewJson(memoryRecords)}</pre>
+                  </ContextPreviewPayload>
                 </div>
               ) : null}
               <details
                 className="context-more-controls"
                 style={sectionThemeStyle("memory")}
               >
-                <summary title="Show memory administration tools">
+                <summary title="Show memory generation, classification, and record tools">
                   <span className="advanced-controls-icon" aria-hidden="true">
                     <AppIcon name="memory" />
                   </span>
                   <span className="advanced-controls-copy">
-                    <strong>Memory admin</strong>
-                    <span>Generate, classify, and transfer</span>
+                    <strong>Memory tools</strong>
+                    <span>Create and maintain</span>
                   </span>
                 </summary>
                 <div className="context-more-grid">
-              <details
-                className="advanced-controls"
-                style={sectionThemeStyle("memory")}
-              >
-                <summary>
-                  <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="prompt" />
-                  </span>
-                  <span className="advanced-controls-copy">
-                    <strong>Generation</strong>
-                    <span>Range metadata, guidance, model selection, and classification</span>
-                  </span>
-                </summary>
-                <label>
-                  <FieldLabel icon="conversation" section="memory">
-                    Source range
-                  </FieldLabel>
-                  <input
-                    value={memorySourceRange}
-                    onChange={(e) => setMemorySourceRange(e.target.value)}
-                    placeholder="optional conversation range label"
-                    title="Stored on generated memory records as source_range."
-                    disabled={running}
-                  />
-                </label>
-                <label>
-                  <FieldLabel icon="prompt" section="memory">
-                    Generation guidance
-                  </FieldLabel>
-                  <input
-                    value={memoryGenerationGuidance}
-                    onChange={(e) => setMemoryGenerationGuidance(e.target.value)}
-                    placeholder="keep durable preferences"
-                    disabled={running}
-                  />
-                </label>
-                <label>
-                  <FieldLabel icon="setup" section="memory">
-                    Classification model
-                  </FieldLabel>
-                  <input
-                    value={memoryClassificationModel}
-                    onChange={(e) => setMemoryClassificationModel(e.target.value)}
-                    placeholder="saved model id or env default"
-                    disabled={running}
-                  />
-                </label>
-                <div className="button-grid">
-                  {showMemoryGenerateAction ? (
-                    <button
-                      type="button"
-                      title="Generate memory candidates from Value."
-                      onClick={() => void generateMemoryFromOps()}
-                      disabled={running}
-                    >
-                      <ButtonLabel icon="prompt">Generate</ButtonLabel>
-                    </button>
-                  ) : null}
-                  {showMemoryGenerateRangeAction ? (
-                    <button
-                      type="button"
-                      title='Generate memory from the expanded conversation range in Value, like { "from": 2, "to": 4 }.'
-                      onClick={() => void generateConversationMemoryFromOps()}
-                      disabled={running}
-                    >
-                      <ButtonLabel icon="conversation">Generate Range</ButtonLabel>
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    title="Generate memory for conversation ranges not yet processed."
-                    onClick={() => void generatePendingMemoryFromOps()}
-                    disabled={running}
+                  <details
+                    className="advanced-controls"
+                    style={sectionThemeStyle("memory")}
                   >
-                    <ButtonLabel icon="trace">Generate Pending</ButtonLabel>
-                  </button>
-                  {showMemoryClassifyAction ? (
-                    <button
-                      type="button"
-                      title="Classify memory Id with the selected model."
-                      onClick={() => void classifyMemoryFromOps()}
-                      disabled={running}
-                    >
-                      <ButtonLabel icon="skill">Classify</ButtonLabel>
-                    </button>
-                  ) : null}
-                </div>
-              </details>
-              <details
-                className="advanced-controls"
-                style={sectionThemeStyle("memory")}
-              >
-                <summary>
-                  <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="artifact" />
-                  </span>
-                  <span className="advanced-controls-copy">
-                    <strong>Maintenance</strong>
-                    <span>Edit, delete, rollback, import, and export memory records</span>
-                  </span>
-                </summary>
-                <div className="button-grid">
-                  {showMemoryEditAction ? (
-                    <button
-                      type="button"
-                      title="Edit memory Id with Value."
-                      onClick={() => void editMemoryFromOps()}
-                      disabled={running}
-                    >
-                      <ButtonLabel icon="prompt">Edit Mem</ButtonLabel>
-                    </button>
-                  ) : null}
-                  {showMemoryDeleteAction ? (
+                    <summary>
+                      <span className="advanced-controls-icon" aria-hidden="true">
+                        <AppIcon name="prompt" />
+                      </span>
+                      <span className="advanced-controls-copy">
+                        <strong>Generation</strong>
+                        <span>Generate and classify</span>
+                      </span>
+                    </summary>
+                    <label>
+                      <FieldLabel icon="conversation" section="memory">
+                        Source range
+                      </FieldLabel>
+                      <input
+                        value={memorySourceRange}
+                        onChange={(e) => setMemorySourceRange(e.target.value)}
+                        placeholder="optional conversation range label"
+                        title="Stored on generated memory records as source_range."
+                        disabled={running}
+                      />
+                    </label>
+                    <label>
+                      <FieldLabel icon="prompt" section="memory">
+                        Generation guidance
+                      </FieldLabel>
+                      <input
+                        value={memoryGenerationGuidance}
+                        onChange={(e) =>
+                          setMemoryGenerationGuidance(e.target.value)
+                        }
+                        placeholder="keep durable preferences"
+                        disabled={running}
+                      />
+                    </label>
+                    <label>
+                      <FieldLabel icon="setup" section="memory">
+                        Classification model
+                      </FieldLabel>
+                      <input
+                        value={memoryClassificationModel}
+                        onChange={(e) =>
+                          setMemoryClassificationModel(e.target.value)
+                        }
+                        placeholder="saved model or env default"
+                        disabled={running}
+                      />
+                    </label>
+                    <div className="button-grid">
+                      {showMemoryGenerateAction ? (
+                        <button
+                          type="button"
+                          title="Generate memory candidates from Payload."
+                          onClick={() => void generateMemoryFromOps()}
+                          disabled={running}
+                        >
+                          <ButtonLabel icon="prompt">Generate</ButtonLabel>
+                        </button>
+                      ) : null}
+                      {showMemoryGenerateRangeAction ? (
+                        <button
+                          type="button"
+                          title='Generate memory from the expanded conversation range in Payload, like { "from": 2, "to": 4 }.'
+                          onClick={() => void generateConversationMemoryFromOps()}
+                          disabled={running}
+                        >
+                          <ButtonLabel icon="conversation">
+                            Generate Range
+                          </ButtonLabel>
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        title="Generate memory for conversation ranges not yet processed."
+                        onClick={() => void generatePendingMemoryFromOps()}
+                        disabled={running}
+                      >
+                        <ButtonLabel icon="trace">Generate Pending</ButtonLabel>
+                      </button>
+                      {showMemoryClassifyAction ? (
+                        <button
+                          type="button"
+                          title="Classify the Target memory with the selected model."
+                          onClick={() => void classifyMemoryFromOps()}
+                          disabled={running}
+                        >
+                          <ButtonLabel icon="skill">Classify</ButtonLabel>
+                        </button>
+                      ) : null}
+                    </div>
+                  </details>
+                  <div className="button-grid context-more-grid-row">
+                    {showMemoryEditAction ? (
+                      <button
+                        type="button"
+                        title="Edit the Target memory with Payload."
+                        onClick={() => void editMemoryFromOps()}
+                        disabled={running}
+                      >
+                        <ButtonLabel icon="prompt">Edit Mem</ButtonLabel>
+                      </button>
+                    ) : null}
+                    {showMemoryDeleteAction ? (
+                      <button
+                        type="button"
+                        className="danger"
+                        title="Delete the Target memory."
+                        onClick={() => void deleteMemoryFromOps()}
+                        disabled={running}
+                      >
+                        <ButtonLabel icon="approval">Delete Mem</ButtonLabel>
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       className="danger"
-                      title="Delete memory Id."
-                      onClick={() => void deleteMemoryFromOps()}
+                      title="Roll back the selected memory file."
+                      onClick={() => void rollbackMemoryFromOps()}
                       disabled={running}
                     >
-                      <ButtonLabel icon="approval">Delete Mem</ButtonLabel>
+                      <ButtonLabel icon="trace">Rollback</ButtonLabel>
                     </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="danger"
-                    title="Roll back the selected memory file."
-                    onClick={() => void rollbackMemoryFromOps()}
-                    disabled={running}
-                  >
-                    <ButtonLabel icon="trace">Rollback</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    title="Export memory records to Value, or to a scoped /tmp path when Value is blank."
-                    onClick={() => {
-                      const agent = agentId.trim() || null;
-                      const path =
-                        opsValue.trim() ||
-                        defaultMemoryExportPath(opsUserMemory, agent);
-                      setOpsValue(path);
-                      void exportMemoryFromOps({
-                        path,
-                        user: opsUserMemory,
-                        agentId: agent,
-                      });
-                    }}
-                    disabled={running}
-                  >
-                    <ButtonLabel icon="artifact">Export Mem</ButtonLabel>
-                  </button>
-                  {showMemoryImportAction ? (
                     <button
                       type="button"
-                      title="Import memory records from the file path in Value, scoped by User memory and active Agent id."
-                      onClick={() => void importMemoryFromControls()}
+                      title="Export memory records to Payload, or to a scoped /tmp path when Payload is blank."
+                      onClick={() => {
+                        const agent = agentId.trim() || null;
+                        const path =
+                          opsValue.trim() ||
+                          defaultMemoryExportPath(opsUserMemory, agent);
+                        setOpsValue(path);
+                        void exportMemoryFromOps({
+                          path,
+                          user: opsUserMemory,
+                          agentId: agent,
+                        });
+                      }}
                       disabled={running}
                     >
-                      <ButtonLabel icon="artifact">Import Mem</ButtonLabel>
+                      <ButtonLabel icon="artifact">Export Mem</ButtonLabel>
                     </button>
-                  ) : null}
-                </div>
-              </details>
+                    {showMemoryImportAction ? (
+                      <button
+                        type="button"
+                        title="Import memory records from the file path in Payload, scoped by User memory and active Agent."
+                        onClick={() => void importMemoryFromControls()}
+                        disabled={running}
+                      >
+                        <ButtonLabel icon="artifact">Import Mem</ButtonLabel>
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
               </details>
             </div>
@@ -27307,7 +29805,7 @@ export default function App() {
                 {showPromptSaveAction ? (
                   <button
                     type="button"
-                    title="Save prompt Id with Value as the prompt body."
+                    title="Save the Target prompt with Payload as the prompt body."
                     onClick={() => void savePromptFromOps()}
                     disabled={running}
                   >
@@ -27318,7 +29816,7 @@ export default function App() {
                   <>
                     <button
                       type="button"
-                      title="Show saved prompt Id."
+                      title="Show the Target saved prompt."
                       onClick={() => void showPromptFromOps()}
                       disabled={running || !opsId.trim()}
                     >
@@ -27326,7 +29824,7 @@ export default function App() {
                     </button>
                     <button
                       type="button"
-                      title="Load saved prompt Id into the composer."
+                      title="Load the Target saved prompt into the composer."
                       onClick={() => void usePromptFromOps()}
                       disabled={running || !opsId.trim()}
                     >
@@ -27334,7 +29832,7 @@ export default function App() {
                     </button>
                     <button
                       type="button"
-                      title="Run saved prompt Id immediately."
+                      title="Run the Target saved prompt immediately."
                       onClick={() => void runPromptFromOps()}
                       disabled={running || !opsId.trim()}
                     >
@@ -27342,7 +29840,7 @@ export default function App() {
                     </button>
                     <button
                       type="button"
-                      title="Preview the exact context for saved prompt Id."
+                      title="Preview the exact context for the Target saved prompt."
                       onClick={() => void previewPromptFromOps()}
                       disabled={running || !opsId.trim()}
                     >
@@ -27501,7 +29999,7 @@ export default function App() {
                           className="advanced-controls"
                           style={sectionThemeStyle("prompts")}
                         >
-                          <summary title="Show prompt staging, export, and delete actions">
+                          <summary title="Show prompt selection and file actions">
                             <span
                               className="advanced-controls-icon"
                               aria-hidden="true"
@@ -27509,18 +30007,18 @@ export default function App() {
                               <AppIcon name="artifact" />
                             </span>
                             <span className="advanced-controls-copy">
-                              <strong>More</strong>
-                              <span>Stage, export, or delete this prompt</span>
+                              <strong>Prompt files</strong>
+                              <span>Prompt export</span>
                             </span>
                           </summary>
                           <div className="button-grid">
                             <button
                               type="button"
-                              title="Move this prompt name into the Target id field."
+                              title="Use this prompt as the Target."
                               onClick={() => setOpsId(prompt.name)}
                               disabled={running}
                             >
-                              <ButtonLabel icon="prompt">Set id</ButtonLabel>
+                              <ButtonLabel icon="prompt">Select</ButtonLabel>
                             </button>
                             <button
                               type="button"
@@ -27564,69 +30062,60 @@ export default function App() {
                       </div>
                     );
                   })}
+                  <ContextPreviewPayload
+                    title="Prompts JSON"
+                    meta={rawPayloadMeta(promptDocs)}
+                    icon="prompt"
+                  >
+                    <pre>{previewJson(promptDocs)}</pre>
+                  </ContextPreviewPayload>
                 </div>
-              ) : (
+              ) : promptLibraryListed ? (
                 <EmptyNote
                   section="prompts"
                   icon="prompt"
-                  title="No saved prompts loaded"
-                  detail="List prompts, or save a staged prompt when a reusable task is ready."
+                  title="Saved prompt library"
+                  detail="List prompts, or save a reusable task once its name and body are prepared."
                 />
-              )}
+              ) : null}
               {showPromptTransferControls ? (
                 <details
                   className="context-more-controls"
                   style={sectionThemeStyle("prompts")}
                 >
-                  <summary title="Show prompt transfer tools">
+                  <summary title="Show saved prompt import, export, and maintenance tools">
                     <span className="advanced-controls-icon" aria-hidden="true">
                       <AppIcon name="artifact" />
                     </span>
                     <span className="advanced-controls-copy">
-                      <strong>Prompt transfer</strong>
-                      <span>Import/export and cleanup</span>
+                      <strong>Prompt library</strong>
+                      <span>Saved prompts</span>
                     </span>
                   </summary>
-                  <div className="context-more-grid">
-                    <details
-                      className="advanced-controls"
-                      style={sectionThemeStyle("prompts")}
-                    >
-                      <summary>
-                        <span className="advanced-controls-icon" aria-hidden="true">
-                          <AppIcon name="artifact" />
-                        </span>
-                        <span className="advanced-controls-copy">
-                          <strong>Saved prompt files</strong>
-                          <span>Import, export, or delete by staged target</span>
-                        </span>
-                      </summary>
-                      <div className="button-grid">
-                        {showPromptTransferTargetActions ? (
-                          <>
-                            <button
-                              type="button"
-                              title="Export saved prompt Id to Value, or to /tmp when Value is blank."
-                              onClick={() => void exportPromptFromOps()}
-                              disabled={running}
-                            >
-                              <ButtonLabel icon="artifact">Export</ButtonLabel>
-                            </button>
-                            <button
-                              type="button"
-                              className="danger"
-                              title="Delete saved prompt Id."
-                              onClick={() => void deletePromptFromOps()}
-                              disabled={running}
-                            >
-                              <ButtonLabel icon="approval">Delete</ButtonLabel>
-                            </button>
-                          </>
-                        ) : null}
+                  {showPromptTransferTargetActions ? (
+                    <div className="context-more-grid">
+                      <div className="button-grid context-more-grid-row">
+                        <button
+                          type="button"
+                          title="Export the Target saved prompt to Payload, or to /tmp when Payload is blank."
+                          onClick={() => void exportPromptFromOps()}
+                          disabled={running}
+                        >
+                          <ButtonLabel icon="artifact">Export</ButtonLabel>
+                        </button>
+                        <button
+                          type="button"
+                          className="danger"
+                          title="Delete the Target saved prompt."
+                          onClick={() => void deletePromptFromOps()}
+                          disabled={running}
+                        >
+                          <ButtonLabel icon="approval">Delete</ButtonLabel>
+                        </button>
                         {showPromptTransferImportAction ? (
                           <button
                             type="button"
-                            title="Import a saved prompt from the path in Value."
+                            title="Import a saved prompt from the path in Payload."
                             onClick={() => void importPromptFromOps()}
                             disabled={running}
                           >
@@ -27634,8 +30123,21 @@ export default function App() {
                           </button>
                         ) : null}
                       </div>
-                    </details>
-                  </div>
+                    </div>
+                  ) : (
+                    <div className="button-grid">
+                      {showPromptTransferImportAction ? (
+                        <button
+                          type="button"
+                          title="Import a saved prompt from the path in Payload."
+                          onClick={() => void importPromptFromOps()}
+                          disabled={running}
+                        >
+                          <ButtonLabel icon="artifact">Import</ButtonLabel>
+                        </button>
+                      ) : null}
+                    </div>
+                  )}
                 </details>
               ) : null}
             </div>
@@ -27648,7 +30150,7 @@ export default function App() {
                 style={sectionThemeStyle("prompts")}
                 open={showModelCatalogControls}
               >
-                <summary title="Show model catalog and provider metadata controls">
+                <summary title="Show model catalog and provider details">
                   <span className="advanced-controls-icon" aria-hidden="true">
                     <AppIcon name="setup" />
                   </span>
@@ -27662,7 +30164,7 @@ export default function App() {
               <div className="button-grid">
                 <button
                   type="button"
-                  title="List configured model metadata."
+                  title="List saved models."
                   onClick={() => void listModelsFromOps()}
                   disabled={running}
                 >
@@ -27678,17 +30180,17 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  title="Check saved models against providers and metadata catalogs."
+                  title="Check saved models against provider and capability catalogs."
                   onClick={() => void modelDoctorFromOps()}
                   disabled={running}
                 >
-                  <ButtonLabel icon="trace">Doctor</ButtonLabel>
+                  <ButtonLabel icon="trace">Check</ButtonLabel>
                 </button>
                 {showModelTargetActions ? (
                   <>
                     <button
                       type="button"
-                      title="Show model Id and load it into the model controls."
+                      title="Show the Target model and load it into the model controls."
                       onClick={() => void showModelFromOps()}
                       disabled={running}
                     >
@@ -27696,18 +30198,18 @@ export default function App() {
                     </button>
                     <button
                       type="button"
-                      title="Probe declared and live capabilities for model Id."
+                      title="Check declared and live capabilities for the Target model."
                       onClick={() => void probeModelFromOps()}
                       disabled={running}
                     >
-                      <ButtonLabel icon="trace">Probe</ButtonLabel>
+                      <ButtonLabel icon="trace">Check</ButtonLabel>
                     </button>
                   </>
                 ) : null}
                 {showModelSaveAction ? (
                   <button
                     type="button"
-                    title="Save the current provider, model, API settings, metadata, and provider options."
+                    title="Save the current provider, model, API settings, extra details, and provider options."
                     onClick={() => void saveCurrentModelFromControls()}
                     disabled={running}
                   >
@@ -27728,7 +30230,7 @@ export default function App() {
                       <AppIcon name="setup" />
                     </span>
                     <div className="model-doctor-title">
-                      <strong>Model doctor {modelDoctorReport.status}</strong>
+                      <strong>Model health {modelDoctorReport.status}</strong>
                       <span>{modelDoctorReport.active_profile}</span>
                     </div>
                   </div>
@@ -27749,7 +30251,7 @@ export default function App() {
                     />
                     <VisualMetric
                       icon="context"
-                      label="metadata"
+                      label="catalog"
                       value={modelDoctorReport.metadata_catalog_models}
                       section="prompts"
                       tone={
@@ -27799,15 +30301,15 @@ export default function App() {
                     {modelDoctorReport.provider_count} providers
                   </span>
                   <span>
-                    metadata catalog{" "}
+                    capability catalog{" "}
                     {modelDoctorReport.metadata_catalog_source ?? "bundled fallback"} /{" "}
-                    {modelDoctorReport.metadata_catalog_models} configured /{" "}
+                    {modelDoctorReport.metadata_catalog_models} custom /{" "}
                     {modelDoctorReport.bundled_metadata_models} bundled
                   </span>
                   <span>
                     provider catalog{" "}
                     {modelDoctorReport.provider_catalog_configured
-                      ? "configured"
+                      ? "custom"
                       : "bundled fallback"}
                   </span>
                   {modelDoctorReport.errors.length ||
@@ -27861,8 +30363,8 @@ export default function App() {
                           ? `catalog ${doc.metadata_modalities.join(", ")}`
                           : "catalog none";
                         const metadata = doc.metadata_present
-                          ? doc.metadata_source ?? "metadata present"
-                          : "metadata missing";
+                          ? doc.metadata_source ?? "details present"
+                          : "details missing";
                         return (
                           <div
                             className={`model-doctor-model-row ${tone}`}
@@ -27903,18 +30405,18 @@ export default function App() {
                               </button>
                               <button
                                 type="button"
-                                title="Probe declared and live capabilities for this saved model."
+                                title="Check declared and live capabilities for this saved model."
                                 onClick={() => void probeModelFromOps(doc.id)}
                                 disabled={running}
                               >
-                                <ButtonLabel icon="trace">Probe</ButtonLabel>
+                                <ButtonLabel icon="trace">Check</ButtonLabel>
                               </button>
                             </div>
                             <details
                               className="advanced-controls"
                               style={sectionThemeStyle("prompts")}
                             >
-                              <summary title="Show model staging and export actions">
+                              <summary title="Show flagged-model selection and export actions">
                                 <span
                                   className="advanced-controls-icon"
                                   aria-hidden="true"
@@ -27922,18 +30424,18 @@ export default function App() {
                                   <AppIcon name="artifact" />
                                 </span>
                                 <span className="advanced-controls-copy">
-                                  <strong>More</strong>
-                                  <span>Stage or export this flagged model</span>
+                                  <strong>Flagged model</strong>
+                                  <span>Review export</span>
                                 </span>
                               </summary>
                               <div className="button-grid">
                                 <button
                                   type="button"
-                                  title="Move this model id into the Target id field."
+                                  title="Use this model as the Target."
                                   onClick={() => setOpsId(doc.id)}
                                   disabled={running}
                                 >
-                                  <ButtonLabel icon="setup">Set id</ButtonLabel>
+                                  <ButtonLabel icon="setup">Select</ButtonLabel>
                                 </button>
                                 <button
                                   type="button"
@@ -27966,6 +30468,272 @@ export default function App() {
                           </div>
                         );
                       })}
+                    </div>
+                  ) : null}
+                  <ContextPreviewPayload
+                    title="Health JSON"
+                    meta={rawPayloadMeta(modelDoctorReport)}
+                    icon="setup"
+                  >
+                    <pre>{previewJson(modelDoctorReport)}</pre>
+                  </ContextPreviewPayload>
+                </div>
+              ) : null}
+              {modelCapabilityProbe ? (
+                <div className="ingestion-review">
+                  <div
+                    className={`ingestion-card ${modelCapabilityProbeTone(
+                      modelCapabilityProbe,
+                    )}`}
+                  >
+                    <div className="ingestion-card-head with-icon">
+                      <span
+                        className={`ingestion-card-icon ${modelCapabilityProbeTone(
+                          modelCapabilityProbe,
+                        )}`}
+                        aria-hidden="true"
+                      >
+                        <AppIcon name="trace" />
+                      </span>
+                      <div className="ingestion-card-title">
+                        <strong>{modelCapabilityProbe.model_id}</strong>
+                        <span>
+                          {modelCapabilityProbe.provider} /{" "}
+                          {modelCapabilityProbe.live_probe.status}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="ingestion-metrics">
+                      <VisualMetric
+                        icon="approval"
+                        label="live"
+                        value={
+                          modelCapabilityProbe.live_probe.attempted
+                            ? "attempted"
+                            : "metadata"
+                        }
+                        section="prompts"
+                        tone={modelCapabilityProbeTone(modelCapabilityProbe)}
+                      />
+                      <VisualMetric
+                        icon="prompt"
+                        label="declared"
+                        value={modelCapabilityProbe.declared_modalities.length}
+                        section="prompts"
+                        tone={
+                          modelCapabilityProbe.declared_modalities.length
+                            ? "ok"
+                            : "warning"
+                        }
+                      />
+                      <VisualMetric
+                        icon="context"
+                        label="reported"
+                        value={
+                          modelCapabilityReportedModalities(modelCapabilityProbe)
+                            .length
+                        }
+                        section="prompts"
+                        tone={
+                          modelCapabilityReportedModalities(modelCapabilityProbe)
+                            .length
+                            ? "ok"
+                            : "neutral"
+                        }
+                      />
+                      <VisualMetric
+                        icon="tools"
+                        label="tools"
+                        value={modelCapabilityToolSupportLabel(modelCapabilityProbe)}
+                        section="prompts"
+                        tone={
+                          modelCapabilityProbe.live_probe.reported_tool_support ??
+                          modelCapabilityProbe.tool_support
+                            ? "ok"
+                            : "neutral"
+                        }
+                      />
+                      <VisualMetric
+                        icon="setup"
+                        label="found"
+                        value={
+                          modelCapabilityProbe.live_probe.model_found == null
+                            ? "n/a"
+                            : modelCapabilityProbe.live_probe.model_found
+                              ? "yes"
+                              : "no"
+                        }
+                        section="prompts"
+                        tone={
+                          modelCapabilityProbe.live_probe.model_found === false
+                            ? "warning"
+                            : "ok"
+                        }
+                      />
+                    </div>
+                    <div className="ingestion-detail-list">
+                      <div
+                        className={`ingestion-detail-row ${modelCapabilityProbeTone(
+                          modelCapabilityProbe,
+                        )}`}
+                      >
+                        <span
+                          className={`ingestion-detail-icon ${modelCapabilityProbeTone(
+                            modelCapabilityProbe,
+                          )}`}
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="setup" />
+                        </span>
+                        <div className="ingestion-detail-copy">
+                          <strong>Live probe</strong>
+                          <span>
+                            {modelCapabilityProbe.live_probe.source ??
+                              modelCapabilityProbe.live_probe.fallback_source ??
+                              "no live source"}
+                          </span>
+                          {modelCapabilityProbe.live_probe.message ? (
+                            <span>
+                              {previewText(
+                                modelCapabilityProbe.live_probe.message,
+                                180,
+                              )}
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div className="ingestion-detail-row">
+                        <span className="ingestion-detail-icon" aria-hidden="true">
+                          <AppIcon name="prompt" />
+                        </span>
+                        <div className="ingestion-detail-copy">
+                          <strong>Modalities</strong>
+                          <span>
+                            declared{" "}
+                            {modelCapabilityProbe.declared_modalities.length
+                              ? modelCapabilityProbe.declared_modalities.join(", ")
+                              : "none"}{" "}
+                            / reported{" "}
+                            {modelCapabilityReportedModalities(modelCapabilityProbe)
+                              .length
+                              ? modelCapabilityReportedModalities(
+                                  modelCapabilityProbe,
+                                ).join(", ")
+                              : "none"}
+                          </span>
+                        </div>
+                      </div>
+                      {modelCapabilityReportedCapabilities(modelCapabilityProbe)
+                        .length ? (
+                        <div className="ingestion-detail-row ok">
+                          <span
+                            className="ingestion-detail-icon ok"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="tools" />
+                          </span>
+                          <div className="ingestion-detail-copy">
+                            <strong>Capability hints</strong>
+                            <span>
+                              {modelCapabilityReportedCapabilities(
+                                modelCapabilityProbe,
+                              ).join(", ")}
+                            </span>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                  <ContextPreviewPayload
+                    title="Model Capability JSON"
+                    meta={rawPayloadMeta(modelCapabilityProbe)}
+                    icon="trace"
+                  >
+                    <pre>{previewJson(modelCapabilityProbe)}</pre>
+                  </ContextPreviewPayload>
+                </div>
+              ) : null}
+              {modelProviderCatalogResult !== undefined ||
+              modelMetadataCatalogResult !== undefined ? (
+                <div className="ingestion-review">
+                  {modelProviderCatalogResult !== undefined ? (
+                    <div className="ingestion-card">
+                      <div className="ingestion-card-head with-icon">
+                        <span className="ingestion-card-icon ok" aria-hidden="true">
+                          <AppIcon name="setup" />
+                        </span>
+                        <div className="ingestion-card-title">
+                          <strong>Provider catalog</strong>
+                          <span>
+                            {modelProviderCatalogLabel(modelProviderCatalogResult)}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="ingestion-metrics">
+                        <VisualMetric
+                          icon="setup"
+                          label="providers"
+                          value={modelProviderCatalogResult?.providers.length ?? 0}
+                          section="prompts"
+                          tone={modelProviderCatalogResult ? "ok" : "neutral"}
+                        />
+                        <VisualMetric
+                          icon="artifact"
+                          label="source"
+                          value={modelProviderCatalogResult?.source ? "custom" : "none"}
+                          section="prompts"
+                          tone={
+                            modelProviderCatalogResult?.source ? "ok" : "neutral"
+                          }
+                        />
+                      </div>
+                      <ContextPreviewPayload
+                        title="Provider Catalog JSON"
+                        meta={rawPayloadMeta(modelProviderCatalogResult)}
+                        icon="setup"
+                      >
+                        <pre>{previewJson(modelProviderCatalogResult)}</pre>
+                      </ContextPreviewPayload>
+                    </div>
+                  ) : null}
+                  {modelMetadataCatalogResult !== undefined ? (
+                    <div className="ingestion-card">
+                      <div className="ingestion-card-head with-icon">
+                        <span className="ingestion-card-icon ok" aria-hidden="true">
+                          <AppIcon name="context" />
+                        </span>
+                        <div className="ingestion-card-title">
+                          <strong>Capability catalog</strong>
+                          <span>
+                            {modelMetadataCatalogLabel(modelMetadataCatalogResult)}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="ingestion-metrics">
+                        <VisualMetric
+                          icon="context"
+                          label="models"
+                          value={modelMetadataCatalogResult?.models.length ?? 0}
+                          section="prompts"
+                          tone={modelMetadataCatalogResult ? "ok" : "neutral"}
+                        />
+                        <VisualMetric
+                          icon="artifact"
+                          label="source"
+                          value={modelMetadataCatalogResult?.source ? "custom" : "none"}
+                          section="prompts"
+                          tone={
+                            modelMetadataCatalogResult?.source ? "ok" : "neutral"
+                          }
+                        />
+                      </div>
+                      <ContextPreviewPayload
+                        title="Capability Catalog JSON"
+                        meta={rawPayloadMeta(modelMetadataCatalogResult)}
+                        icon="context"
+                      >
+                        <pre>{previewJson(modelMetadataCatalogResult)}</pre>
+                      </ContextPreviewPayload>
                     </div>
                   ) : null}
                 </div>
@@ -28225,7 +30993,7 @@ export default function App() {
                                 <AppIcon name="memory" />
                               </span>
                               <div className="ingestion-detail-copy">
-                                <strong>Metadata</strong>
+                                <strong>Extra details</strong>
                                 <span>{metadataKeys.join(", ")}</span>
                               </div>
                             </div>
@@ -28250,18 +31018,18 @@ export default function App() {
                           </button>
                           <button
                             type="button"
-                            title="Probe this saved model."
+                            title="Check this saved model."
                             onClick={() => void probeModelFromOps(doc.id)}
                             disabled={running}
                           >
-                            <ButtonLabel icon="trace">Probe</ButtonLabel>
+                            <ButtonLabel icon="trace">Check</ButtonLabel>
                           </button>
                         </div>
                         <details
                           className="advanced-controls"
                           style={sectionThemeStyle("prompts")}
                         >
-                          <summary title="Show model staging, export, and delete actions">
+                          <summary title="Show model selection and file actions">
                             <span
                               className="advanced-controls-icon"
                               aria-hidden="true"
@@ -28269,18 +31037,18 @@ export default function App() {
                               <AppIcon name="artifact" />
                             </span>
                             <span className="advanced-controls-copy">
-                              <strong>More</strong>
-                              <span>Stage, export, or delete this model</span>
+                              <strong>Model files</strong>
+                              <span>Model export</span>
                             </span>
                           </summary>
                           <div className="button-grid">
                             <button
                               type="button"
-                              title="Move this model id into the Target id field."
+                              title="Use this model as the Target."
                               onClick={() => setOpsId(doc.id)}
                               disabled={running}
                             >
-                              <ButtonLabel icon="setup">Set id</ButtonLabel>
+                              <ButtonLabel icon="setup">Select</ButtonLabel>
                             </button>
                             <button
                               type="button"
@@ -28325,15 +31093,22 @@ export default function App() {
                       </div>
                     );
                   })}
+                  <ContextPreviewPayload
+                    title="Models JSON"
+                    meta={rawPayloadMeta(modelConfigs)}
+                    icon="setup"
+                  >
+                    <pre>{previewJson(modelConfigs)}</pre>
+                  </ContextPreviewPayload>
                 </div>
-              ) : (
+              ) : modelLibraryListed ? (
                 <EmptyNote
                   section="prompts"
                   icon="setup"
-                  title="No saved models loaded"
+                  title="Saved model library"
                   detail="List models, or save the current provider controls for reuse."
                 />
-              )}
+              ) : null}
               {modelProviderDescriptors.length ? (
                 <div className="ingestion-review">
                   {modelProviderDescriptors.map((descriptor) => {
@@ -28586,173 +31361,149 @@ export default function App() {
                       </div>
                     );
                   })}
+                  <ContextPreviewPayload
+                    title="Providers JSON"
+                    meta={rawPayloadMeta(modelProviderDescriptors)}
+                    icon="setup"
+                  >
+                    <pre>{previewJson(modelProviderDescriptors)}</pre>
+                  </ContextPreviewPayload>
                 </div>
               ) : null}
               <details
                 className="context-more-controls"
                 style={sectionThemeStyle("prompts")}
               >
-                <summary title="Show catalog and model transfer tools">
+                <summary title="Show model library, catalog, and file tools">
                   <span className="advanced-controls-icon" aria-hidden="true">
                     <AppIcon name="setup" />
                   </span>
                   <span className="advanced-controls-copy">
-                    <strong>Catalog tools</strong>
-                    <span>Provider and model records</span>
+                    <strong>Model library</strong>
+                    <span>Catalogs and models</span>
                   </span>
                 </summary>
                 <div className="context-more-grid">
-                  <details
-                    className="advanced-controls"
-                    style={sectionThemeStyle("prompts")}
-                  >
-                    <summary>
-                      <span className="advanced-controls-icon" aria-hidden="true">
-                        <AppIcon name="setup" />
-                      </span>
-                      <span className="advanced-controls-copy">
-                        <strong>Catalogs</strong>
-                        <span>Provider and model metadata records</span>
-                      </span>
-                    </summary>
-                    <div className="button-grid">
-                      <button
-                        type="button"
-                        title="Show the active profile provider catalog JSON."
-                        onClick={() => void showModelProviderCatalogFromOps()}
-                        disabled={running}
-                      >
-                        <ButtonLabel icon="setup">Providers</ButtonLabel>
-                      </button>
-                      <button
-                        type="button"
-                        title="Show the active profile metadata catalog JSON."
-                        onClick={() => void showModelMetadataCatalogFromOps()}
-                        disabled={running}
-                      >
-                        <ButtonLabel icon="setup">Metadata</ButtonLabel>
-                      </button>
-                    </div>
-                  </details>
-                  {showModelTransferControls ? (
-                    <details
-                      className="advanced-controls"
-                      style={sectionThemeStyle("prompts")}
+                  <div className="button-grid context-more-grid-row">
+                    <button
+                      type="button"
+                      title="Show the active profile provider catalog JSON."
+                      onClick={() => void showModelProviderCatalogFromOps()}
+                      disabled={running}
                     >
-                      <summary>
-                        <span className="advanced-controls-icon" aria-hidden="true">
-                          <AppIcon name="setup" />
-                        </span>
-                        <span className="advanced-controls-copy">
-                          <strong>Models</strong>
-                          <span>Save, import/export, and delete</span>
-                        </span>
-                      </summary>
-                      <div className="button-grid">
-                        {showModelTransferTargetActions ? (
-                          <>
-                            <button
-                              type="button"
-                              title="Save model Id using Value as a JSON metadata object."
-                              onClick={() => void saveModelFromOps()}
-                              disabled={running}
-                            >
-                              <ButtonLabel icon="setup">Save</ButtonLabel>
-                            </button>
-                            <button
-                              type="button"
-                              title="Export model Id to Value, or to /tmp when Value is blank."
-                              onClick={() => void exportModelFromOps()}
-                              disabled={running}
-                            >
-                              <ButtonLabel icon="artifact">Export</ButtonLabel>
-                            </button>
-                            <button
-                              type="button"
-                              className="danger"
-                              title="Delete model Id."
-                              onClick={() => void deleteModelFromOps()}
-                              disabled={running}
-                            >
-                              <ButtonLabel icon="approval">Delete</ButtonLabel>
-                            </button>
-                          </>
-                        ) : null}
+                      <ButtonLabel icon="setup">Providers</ButtonLabel>
+                    </button>
+                    <button
+                      type="button"
+                      title="Show the active profile model capability catalog JSON."
+                      onClick={() => void showModelMetadataCatalogFromOps()}
+                      disabled={running}
+                    >
+                      <ButtonLabel icon="setup">Capabilities</ButtonLabel>
+                    </button>
+                  </div>
+                  {showModelTransferControls ? (
+                    showModelTransferTargetActions ? (
+                      <div className="button-grid context-more-grid-row">
+                        <button
+                          type="button"
+                          title="Save the Target model using Payload as a JSON model-details object."
+                          onClick={() => void saveModelFromOps()}
+                          disabled={running}
+                        >
+                          <ButtonLabel icon="setup">Save Model</ButtonLabel>
+                        </button>
+                        <button
+                          type="button"
+                          title="Export the Target model to Payload, or to /tmp when Payload is blank."
+                          onClick={() => void exportModelFromOps()}
+                          disabled={running}
+                        >
+                          <ButtonLabel icon="artifact">Export Model</ButtonLabel>
+                        </button>
                         {showModelTransferImportAction ? (
                           <button
                             type="button"
-                            title="Import model metadata from the path in Value."
+                            title="Import model details from the path in Payload."
                             onClick={() => void importModelFromOps()}
                             disabled={running}
                           >
-                            <ButtonLabel icon="artifact">Import</ButtonLabel>
+                            <ButtonLabel icon="artifact">Import Model</ButtonLabel>
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="danger"
+                          title="Delete the Target model."
+                          onClick={() => void deleteModelFromOps()}
+                          disabled={running}
+                        >
+                          <ButtonLabel icon="approval">Delete Model</ButtonLabel>
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="button-grid context-more-grid-row">
+                        {showModelTransferImportAction ? (
+                          <button
+                            type="button"
+                            title="Import model details from the path in Payload."
+                            onClick={() => void importModelFromOps()}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="artifact">Import Model</ButtonLabel>
                           </button>
                         ) : null}
                       </div>
-                    </details>
+                    )
                   ) : null}
-                  <details
-                    className="advanced-controls"
-                    style={sectionThemeStyle("prompts")}
-                  >
-                    <summary>
-                      <span className="advanced-controls-icon" aria-hidden="true">
-                        <AppIcon name="artifact" />
-                      </span>
-                      <span className="advanced-controls-copy">
-                        <strong>Catalog files</strong>
-                        <span>Import/export provider and metadata catalogs</span>
-                      </span>
-                    </summary>
-                    <div className="button-grid">
+                  <div className="button-grid context-more-grid-row">
+                    <button
+                      type="button"
+                      title="Export provider catalog JSON to Payload, or to /tmp when Payload is blank."
+                      onClick={() => {
+                        const path =
+                          opsValue.trim() || defaultProviderCatalogExportPath();
+                        setOpsValue(path);
+                        void exportModelProviderCatalogFromOps(path);
+                      }}
+                      disabled={running}
+                    >
+                      <ButtonLabel icon="artifact">Export providers</ButtonLabel>
+                    </button>
+                    {showModelCatalogFileImportActions ? (
                       <button
                         type="button"
-                        title="Export provider catalog JSON to Value, or to /tmp when Value is blank."
-                        onClick={() => {
-                          const path =
-                            opsValue.trim() || defaultProviderCatalogExportPath();
-                          setOpsValue(path);
-                          void exportModelProviderCatalogFromOps(path);
-                        }}
+                        title="Import provider catalog JSON from the path in Payload."
+                        onClick={() => void importModelProviderCatalogFromOps()}
                         disabled={running}
                       >
-                        <ButtonLabel icon="artifact">Export providers</ButtonLabel>
+                        <ButtonLabel icon="artifact">Import providers</ButtonLabel>
                       </button>
-                      {showModelCatalogFileImportActions ? (
-                        <button
-                          type="button"
-                          title="Import provider catalog JSON from the path in Value."
-                          onClick={() => void importModelProviderCatalogFromOps()}
-                          disabled={running}
-                        >
-                          <ButtonLabel icon="artifact">Import providers</ButtonLabel>
-                        </button>
-                      ) : null}
+                    ) : null}
+                    <button
+                      type="button"
+                      title="Export capability catalog JSON to Payload, or to /tmp when Payload is blank."
+                      onClick={() => {
+                        const path =
+                          opsValue.trim() || defaultMetadataCatalogExportPath();
+                        setOpsValue(path);
+                        void exportModelMetadataCatalogFromOps(path);
+                      }}
+                      disabled={running}
+                    >
+                      <ButtonLabel icon="artifact">Export capabilities</ButtonLabel>
+                    </button>
+                    {showModelCatalogFileImportActions ? (
                       <button
                         type="button"
-                        title="Export metadata catalog JSON to Value, or to /tmp when Value is blank."
-                        onClick={() => {
-                          const path =
-                            opsValue.trim() || defaultMetadataCatalogExportPath();
-                          setOpsValue(path);
-                          void exportModelMetadataCatalogFromOps(path);
-                        }}
+                        title="Import capability catalog JSON from the path in Payload."
+                        onClick={() => void importModelMetadataCatalogFromOps()}
                         disabled={running}
                       >
-                        <ButtonLabel icon="artifact">Export metadata</ButtonLabel>
+                        <ButtonLabel icon="artifact">Import capabilities</ButtonLabel>
                       </button>
-                      {showModelCatalogFileImportActions ? (
-                        <button
-                          type="button"
-                          title="Import metadata catalog JSON from the path in Value."
-                          onClick={() => void importModelMetadataCatalogFromOps()}
-                          disabled={running}
-                        >
-                          <ButtonLabel icon="artifact">Import metadata</ButtonLabel>
-                        </button>
-                      ) : null}
-                    </div>
-                  </details>
+                    ) : null}
+                  </div>
                 </div>
               </details>
                 </div>
@@ -28775,7 +31526,7 @@ export default function App() {
                 {showSkillTargetAction ? (
                   <button
                     type="button"
-                    title="Show quarantined or allowed skill Id."
+                    title="Show the Target skill."
                     onClick={() => void showSkillFromOps()}
                     disabled={running}
                   >
@@ -28804,14 +31555,14 @@ export default function App() {
                     `${skillDocs.filter(hasHighRiskSkillFindings).length} blocked.`,
                   ].join("; ")}
                 />
-              ) : (
+              ) : skillLibraryListed ? (
                 <EmptyNote
                   section="skills"
                   icon="skill"
-                  title="No imported skills loaded"
+                  title="Skill review queue"
                   detail="Skills stay out of context until they are reviewed and allowed."
                 />
-              )}
+              ) : null}
               <details
                 className="context-more-controls"
                 style={sectionThemeStyle("skills")}
@@ -28823,7 +31574,7 @@ export default function App() {
                   </span>
                   <span className="advanced-controls-copy">
                     <strong>Capability drafts</strong>
-                    <span>Review proposed tools and agents</span>
+                    <span>Proposed tools and agents</span>
                   </span>
                 </summary>
                 <div className="operation-group">
@@ -28848,7 +31599,7 @@ export default function App() {
               <div className="button-grid">
                 <button
                   type="button"
-                  title="List quarantined, allowed, and rejected capability drafts."
+                  title="List capability drafts by review state."
                   onClick={() => void reviewCapabilities()}
                   disabled={running}
                 >
@@ -28860,12 +31611,12 @@ export default function App() {
                   onClick={() => void capabilityDoctorFromOps()}
                   disabled={running}
                 >
-                  <ButtonLabel icon="trace">Doctor</ButtonLabel>
+                  <ButtonLabel icon="trace">Check</ButtonLabel>
                 </button>
                 {showCapabilityProposeAction ? (
                   <button
                     type="button"
-                    title="Create a quarantined draft from Id as name, Value as body, and optional Draft guidance."
+                    title="Create a draft for review from Target as name, Payload as body, and optional Draft guidance."
                     onClick={() => void proposeCapabilityFromOps()}
                     disabled={running}
                   >
@@ -28876,7 +31627,7 @@ export default function App() {
                   <>
                     <button
                       type="button"
-                      title="Show capability draft Id."
+                      title="Show the Target capability draft."
                       onClick={() => void showCapabilityFromOps()}
                       disabled={running}
                     >
@@ -28884,7 +31635,7 @@ export default function App() {
                     </button>
                     <button
                       type="button"
-                      title="Allow capability draft Id after review."
+                      title="Allow the Target capability draft after review."
                       onClick={() => void reviewCapabilityDraft(true)}
                       disabled={running}
                     >
@@ -28892,7 +31643,7 @@ export default function App() {
                     </button>
                     <button
                       type="button"
-                      title="Reject capability draft Id and quarantine its promoted capability if present."
+                      title="Reject the Target capability draft and move its promoted capability back to review if present."
                       onClick={() => void reviewCapabilityDraft(false)}
                       disabled={running}
                     >
@@ -28916,14 +31667,14 @@ export default function App() {
                     } review needed.`,
                   ].join("; ")}
                 />
-              ) : (
+              ) : capabilityDraftsListed ? (
                 <EmptyNote
                   section="skills"
                   icon="tools"
-                  title="No capability drafts loaded"
-                  detail="Draft tools, skills, agents, and subagents stay quarantined until allowed."
+                  title="Capability draft queue"
+                  detail="Draft tools, skills, agents, and subagents stay in review until allowed."
                 />
-              )}
+              ) : null}
                 </div>
               </details>
               {showSkillTransferControls ? (
@@ -28931,117 +31682,108 @@ export default function App() {
                   className="context-more-controls"
                   style={sectionThemeStyle("skills")}
                 >
-                  <summary title="Show skill and draft transfer tools">
+                  <summary title="Show skill library import, export, and review tools">
                     <span className="advanced-controls-icon" aria-hidden="true">
                       <AppIcon name="skill" />
                     </span>
                     <span className="advanced-controls-copy">
-                      <strong>Skill transfer</strong>
-                      <span>Skills, drafts, quarantine, and cleanup</span>
+                      <strong>Skill library</strong>
+                      <span>Packages and drafts</span>
                     </span>
                   </summary>
                   <div className="context-more-grid">
-                    <details
-                      className="advanced-controls"
-                      style={sectionThemeStyle("skills")}
-                    >
-                      <summary>
-                        <span className="advanced-controls-icon" aria-hidden="true">
-                          <AppIcon name="skill" />
-                        </span>
-                        <span className="advanced-controls-copy">
-                          <strong>Skill packages</strong>
-                          <span>Import, export, allow, and quarantine by staged id</span>
-                        </span>
-                      </summary>
-                      <div className="button-grid">
-                        {showSkillTransferImportAction ? (
+                    {showSkillTransferTargetActions ? (
+                      <>
+                        <div className="button-grid context-more-grid-row">
+                          {showSkillTransferImportAction ? (
+                            <button
+                              type="button"
+                              title="Import a SKILL.md file or folder path from Payload."
+                              onClick={() => void importSkillFromOps()}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="artifact">Import Skill</ButtonLabel>
+                            </button>
+                          ) : null}
                           <button
                             type="button"
-                            title="Import a SKILL.md file or folder path from Value."
-                            onClick={() => void importSkillFromOps()}
+                            title="Export the Target skill to Payload, or to /tmp when Payload is blank."
+                            onClick={() => void exportSkillFromOps()}
                             disabled={running}
                           >
-                            <ButtonLabel icon="artifact">Import Skill</ButtonLabel>
+                            <ButtonLabel icon="artifact">Export Skill</ButtonLabel>
                           </button>
-                        ) : null}
-                        {showSkillTransferTargetActions ? (
+                          <button
+                            type="button"
+                            title="Allow the Target skill into context after digest and prompt-injection checks pass."
+                            onClick={() => void setSkillQuarantine(true)}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="approval">Allow Skill</ButtonLabel>
+                          </button>
+                          <button
+                            type="button"
+                            title="Move the Target skill back to review."
+                            onClick={() => void setSkillQuarantine(false)}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="approval">Quarantine</ButtonLabel>
+                          </button>
+                        </div>
+                        <div className="button-grid context-more-grid-row">
+                          <button
+                            type="button"
+                            title="Export the Target capability draft to Payload, or to /tmp when Payload is blank."
+                            onClick={() => void exportCapabilityFromOps()}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="artifact">Export Draft</ButtonLabel>
+                          </button>
+                          <button
+                            type="button"
+                            className="danger"
+                            title="Delete the Target capability draft."
+                            onClick={() => void deleteCapabilityFromOps()}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="approval">Delete Draft</ButtonLabel>
+                          </button>
+                          {showSkillTransferImportAction ? (
+                            <button
+                              type="button"
+                              title="Import a capability draft from Payload path. Imported drafts stay in review."
+                              onClick={() => void importCapabilityFromOps()}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="artifact">Import Draft</ButtonLabel>
+                            </button>
+                          ) : null}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="button-grid context-more-grid-row">
+                        {showSkillTransferImportAction ? (
                           <>
                             <button
                               type="button"
-                              title="Export quarantined or allowed skill Id to Value, or to /tmp when Value is blank."
-                              onClick={() => void exportSkillFromOps()}
+                              title="Import a SKILL.md file or folder path from Payload."
+                              onClick={() => void importSkillFromOps()}
                               disabled={running}
                             >
-                              <ButtonLabel icon="artifact">Export Skill</ButtonLabel>
+                              <ButtonLabel icon="artifact">Import Skill</ButtonLabel>
                             </button>
                             <button
                               type="button"
-                              title="Allow quarantined skill Id into context after digest and prompt-injection checks pass."
-                              onClick={() => void setSkillQuarantine(true)}
+                              title="Import a capability draft from Payload path. Imported drafts stay in review."
+                              onClick={() => void importCapabilityFromOps()}
                               disabled={running}
                             >
-                              <ButtonLabel icon="approval">Allow Skill</ButtonLabel>
-                            </button>
-                            <button
-                              type="button"
-                              title="Quarantine skill Id."
-                              onClick={() => void setSkillQuarantine(false)}
-                              disabled={running}
-                            >
-                              <ButtonLabel icon="approval">Quarantine</ButtonLabel>
+                              <ButtonLabel icon="artifact">Import Draft</ButtonLabel>
                             </button>
                           </>
                         ) : null}
                       </div>
-                    </details>
-                    <details
-                      className="advanced-controls"
-                      style={sectionThemeStyle("skills")}
-                    >
-                      <summary>
-                        <span className="advanced-controls-icon" aria-hidden="true">
-                          <AppIcon name="tools" />
-                        </span>
-                        <span className="advanced-controls-copy">
-                          <strong>Draft transfer</strong>
-                          <span>Import/export and destructive cleanup</span>
-                        </span>
-                      </summary>
-                      <div className="button-grid">
-                        {showSkillTransferTargetActions ? (
-                          <>
-                            <button
-                              type="button"
-                              title="Export capability draft Id to Value, or to /tmp when Value is blank."
-                              onClick={() => void exportCapabilityFromOps()}
-                              disabled={running}
-                            >
-                              <ButtonLabel icon="artifact">Export Draft</ButtonLabel>
-                            </button>
-                            <button
-                              type="button"
-                              className="danger"
-                              title="Delete capability draft Id."
-                              onClick={() => void deleteCapabilityFromOps()}
-                              disabled={running}
-                            >
-                              <ButtonLabel icon="approval">Delete Draft</ButtonLabel>
-                            </button>
-                          </>
-                        ) : null}
-                        {showSkillTransferImportAction ? (
-                          <button
-                            type="button"
-                            title="Import a capability draft from Value path. Imported drafts stay quarantined."
-                            onClick={() => void importCapabilityFromOps()}
-                            disabled={running}
-                          >
-                            <ButtonLabel icon="artifact">Import Draft</ButtonLabel>
-                          </button>
-                        ) : null}
-                      </div>
-                    </details>
+                    )}
                   </div>
                 </details>
               ) : null}
@@ -29062,7 +31804,7 @@ export default function App() {
                         <AppIcon name="tools" />
                       </span>
                       <div className="ingestion-card-title">
-                        <strong>Capability doctor</strong>
+                        <strong>Capability health</strong>
                         <span>{capabilityDoctorReport.status}</span>
                       </div>
                     </div>
@@ -29368,6 +32110,13 @@ export default function App() {
                         })}
                       </div>
                     ) : null}
+                    <ContextPreviewPayload
+                      title="Health JSON"
+                      meta={rawPayloadMeta(capabilityDoctorReport)}
+                      icon="tools"
+                    >
+                      <pre>{previewJson(capabilityDoctorReport)}</pre>
+                    </ContextPreviewPayload>
                   </div>
                 </div>
               ) : null}
@@ -29571,7 +32320,7 @@ export default function App() {
                         className="advanced-controls"
                         style={sectionThemeStyle("skills")}
                       >
-                        <summary title="Show draft staging, export, and delete actions">
+                        <summary title="Show draft selection and file actions">
                           <span
                             className="advanced-controls-icon"
                             aria-hidden="true"
@@ -29579,18 +32328,18 @@ export default function App() {
                             <AppIcon name="artifact" />
                           </span>
                           <span className="advanced-controls-copy">
-                            <strong>More</strong>
-                            <span>Stage, export, or delete this draft</span>
+                            <strong>Draft actions</strong>
+                            <span>Draft export</span>
                           </span>
                         </summary>
                         <div className="button-grid">
                           <button
                             type="button"
-                            title="Move this draft id into the Target id field."
+                            title="Use this draft as the Target."
                             onClick={() => setOpsId(draft.id)}
                             disabled={running}
                           >
-                            <ButtonLabel icon="tools">Set id</ButtonLabel>
+                            <ButtonLabel icon="tools">Select</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -29633,6 +32382,13 @@ export default function App() {
                       </details>
                     </div>
                   ))}
+                  <ContextPreviewPayload
+                    title="Drafts JSON"
+                    meta={rawPayloadMeta(capabilityDrafts)}
+                    icon="tools"
+                  >
+                    <pre>{previewJson(capabilityDrafts)}</pre>
+                  </ContextPreviewPayload>
                 </div>
               ) : null}
               {skillDocs.length ? (
@@ -29881,7 +32637,7 @@ export default function App() {
                           className="advanced-controls"
                           style={sectionThemeStyle("skills")}
                         >
-                          <summary title="Show skill staging and export actions">
+                          <summary title="Show skill selection and export actions">
                             <span
                               className="advanced-controls-icon"
                               aria-hidden="true"
@@ -29889,18 +32645,18 @@ export default function App() {
                               <AppIcon name="artifact" />
                             </span>
                             <span className="advanced-controls-copy">
-                              <strong>More</strong>
-                              <span>Stage or export this skill</span>
+                              <strong>Skill files</strong>
+                              <span>Skill export</span>
                             </span>
                           </summary>
                           <div className="button-grid">
                             <button
                               type="button"
-                              title="Move this skill id into the Target id field."
+                              title="Use this skill as the Target."
                               onClick={() => setOpsId(skill.id)}
                               disabled={running}
                             >
-                              <ButtonLabel icon="skill">Set id</ButtonLabel>
+                              <ButtonLabel icon="skill">Select</ButtonLabel>
                             </button>
                             <button
                               type="button"
@@ -29932,6 +32688,13 @@ export default function App() {
                       </div>
                     );
                   })}
+                  <ContextPreviewPayload
+                    title="Skills JSON"
+                    meta={rawPayloadMeta(skillDocs)}
+                    icon="skill"
+                  >
+                    <pre>{previewJson(skillDocs)}</pre>
+                  </ContextPreviewPayload>
                 </div>
               ) : null}
             </div>
@@ -29953,15 +32716,15 @@ export default function App() {
                   <>
                     <button
                       type="button"
-                      title="Check which ingestion backends fit the file path in Value."
+                      title="Check which source readers fit the file path in Payload."
                       onClick={() => void probeIngestSourceFromOps()}
                       disabled={running}
                     >
-                      <ButtonLabel icon="trace">Probe</ButtonLabel>
+                      <ButtonLabel icon="trace">Check</ButtonLabel>
                     </button>
                     <button
                       type="button"
-                      title="Ingest the file path in Value using the selected backend."
+                      title="Ingest the file path in Payload using the selected source reader."
                       onClick={() => void ingestPathFromOps()}
                       disabled={running}
                     >
@@ -29973,7 +32736,7 @@ export default function App() {
                   <>
                     <button
                       type="button"
-                      title="Show ingestion artifact Id."
+                      title="Show the Target ingestion artifact."
                       onClick={() => void showIngestFromOps()}
                       disabled={running || !opsId.trim()}
                     >
@@ -29981,7 +32744,7 @@ export default function App() {
                     </button>
                     <button
                       type="button"
-                      title="Include ingestion artifact Id in the next run context."
+                      title="Include the Target ingestion artifact in the next run context."
                       onClick={() => includeIngestFromOps()}
                       disabled={running || !opsId.trim()}
                     >
@@ -29989,7 +32752,7 @@ export default function App() {
                     </button>
                     <button
                       type="button"
-                      title="Include artifact Id and preview the next agent context."
+                      title="Include the Target artifact and preview the next agent context."
                       onClick={() => void previewWithIngestFromOps()}
                       disabled={
                         running || (!opsId.trim() && !includeIngestIds.length)
@@ -30014,13 +32777,13 @@ export default function App() {
                 className="context-more-controls"
                 style={sectionThemeStyle("ingest")}
               >
-                <summary title="Show ingestion setup and review tools">
+                <summary title="Show source options and review tools">
                   <span className="advanced-controls-icon" aria-hidden="true">
                     <AppIcon name="ingest" />
                   </span>
                   <span className="advanced-controls-copy">
-                    <strong>Ingest setup</strong>
-                    <span>Backends, models, and review</span>
+                    <strong>Source options</strong>
+                    <span>Source checks</span>
                   </span>
                 </summary>
                 <div className="context-more-grid">
@@ -30033,23 +32796,23 @@ export default function App() {
                         <AppIcon name="setup" />
                       </span>
                       <span className="advanced-controls-copy">
-                        <strong>Source setup</strong>
-                        <span>Backend plus OCR and guardrail models</span>
+                        <strong>Source</strong>
+                        <span>Reader setup</span>
                       </span>
                     </summary>
                     <div className="button-grid">
                       <button
                         type="button"
-                        title="List available ingestion backends."
+                        title="Review source readers."
                         onClick={() => void reviewIngestionBackends()}
                         disabled={running}
                       >
-                        <ButtonLabel icon="setup">Backends</ButtonLabel>
+                        <ButtonLabel icon="setup">Readers</ButtonLabel>
                       </button>
                     </div>
                     <label>
                       <FieldLabel icon="setup" section="ingest">
-                        Backend
+                        Reader
                       </FieldLabel>
                       <select
                         value={ingestBackend}
@@ -30086,7 +32849,7 @@ export default function App() {
                             ]
                         ).map((backend) => (
                           <option value={backend.id} key={backend.id}>
-                            {backend.id}
+                            {backend.name || backend.id}
                           </option>
                         ))}
                       </select>
@@ -30124,7 +32887,7 @@ export default function App() {
                       </span>
                       <span className="advanced-controls-copy">
                         <strong>Finding review</strong>
-                        <span>Finding index, decision, and reviewer note</span>
+                        <span>Decision and note</span>
                       </span>
                     </summary>
                     <label>
@@ -30168,47 +32931,33 @@ export default function App() {
                       />
                     </label>
                   </details>
-                  <details
-                    className="advanced-controls"
-                    style={sectionThemeStyle("ingest")}
-                  >
-                    <summary>
-                      <span className="advanced-controls-icon" aria-hidden="true">
-                        <AppIcon name="trace" />
-                      </span>
-                      <span className="advanced-controls-copy">
-                        <strong>Maintenance</strong>
-                        <span>Review findings, rerun artifacts, and remove cached ingest</span>
-                      </span>
-                    </summary>
-                    <div className="button-grid">
-                      <button
-                        type="button"
-                        title="Review finding index on ingestion artifact Id."
-                        onClick={() => void reviewIngestFindingFromOps()}
-                        disabled={running || !opsId.trim()}
-                      >
-                        <ButtonLabel icon="approval">Review Finding</ButtonLabel>
-                      </button>
-                      <button
-                        type="button"
-                        title="Re-run ingestion artifact Id with the selected backend."
-                        onClick={() => void rerunIngestFromOps()}
-                        disabled={running || !opsId.trim()}
-                      >
-                        <ButtonLabel icon="trace">Rerun Ingest</ButtonLabel>
-                      </button>
-                      <button
-                        type="button"
-                        className="danger"
-                        title="Remove ingestion artifact Id."
-                        onClick={() => void removeIngestFromOps()}
-                        disabled={running || !opsId.trim()}
-                      >
-                        <ButtonLabel icon="approval">Remove Ingest</ButtonLabel>
-                      </button>
-                    </div>
-                  </details>
+                  <div className="button-grid context-more-grid-row">
+                    <button
+                      type="button"
+                      title="Review the finding index on the Target ingestion artifact."
+                      onClick={() => void reviewIngestFindingFromOps()}
+                      disabled={running || !opsId.trim()}
+                    >
+                      <ButtonLabel icon="approval">Review Finding</ButtonLabel>
+                    </button>
+                    <button
+                      type="button"
+                      title="Re-run the Target ingestion artifact with the selected source reader."
+                      onClick={() => void rerunIngestFromOps()}
+                      disabled={running || !opsId.trim()}
+                    >
+                      <ButtonLabel icon="trace">Rerun Ingest</ButtonLabel>
+                    </button>
+                    <button
+                      type="button"
+                      className="danger"
+                      title="Remove the Target ingestion artifact."
+                      onClick={() => void removeIngestFromOps()}
+                      disabled={running || !opsId.trim()}
+                    >
+                      <ButtonLabel icon="approval">Remove Ingest</ButtonLabel>
+                    </button>
+                  </div>
                 </div>
               </details>
               {ingestionSourceProbe ? (
@@ -30299,7 +33048,7 @@ export default function App() {
                     <div className="mini-actions">
                       <button
                         type="button"
-                        title="Move this probed source path into Value."
+                        title="Move this checked source path into Payload."
                         onClick={() => stageIngestSourceProbe(ingestionSourceProbe)}
                         disabled={running}
                       >
@@ -30322,9 +33071,11 @@ export default function App() {
                                 <AppIcon name="ingest" />
                               </span>
                               <div className="ingestion-detail-copy">
-                                <strong>{backend.backend_id}</strong>
+                                <strong>
+                                  {backend.backend_name || backend.backend_id}
+                                </strong>
                                 <span>
-                                  {backend.backend_name} / {backend.status}
+                                  {backend.backend_id} / {backend.status}
                                 </span>
                                 <div className="ingestion-detail-metrics">
                                   <VisualMetric
@@ -30390,7 +33141,7 @@ export default function App() {
                               <div className="mini-actions">
                                 <button
                                   type="button"
-                                  title={`Use ${backend.backend_id} for this probed source.`}
+                                  title={`Use ${backend.backend_id} as the reader for this source.`}
                                   onClick={() =>
                                     stageIngestSourceProbe(
                                       ingestionSourceProbe,
@@ -30405,8 +33156,8 @@ export default function App() {
                                   type="button"
                                   title={
                                     sourceProbeDirectIngestBlocked(ingestionSourceProbe)
-                                      ? "Cannot ingest directly with the unsupported probed vision model."
-                                      : `Ingest this probed source with ${backend.backend_id}.`
+                                      ? "Cannot ingest directly with the unsupported checked vision model."
+                                      : `Ingest this checked source with reader ${backend.backend_id}.`
                                   }
                                   onClick={() =>
                                     void ingestSourceProbeBackend(
@@ -30428,6 +33179,86 @@ export default function App() {
                       })}
                     </div>
                   </div>
+                  <ContextPreviewPayload
+                    title="Source Check JSON"
+                    meta={rawPayloadMeta(ingestionSourceProbe)}
+                    icon="ingest"
+                  >
+                    <pre>{previewJson(ingestionSourceProbe)}</pre>
+                  </ContextPreviewPayload>
+                </div>
+              ) : null}
+              {ingestionVisionProbe ? (
+                <div className="ingestion-review">
+                  <div
+                    className={`ingestion-card ${ingestionVisionProbeTone(
+                      ingestionVisionProbe,
+                    )}`}
+                  >
+                    <div className="ingestion-card-head with-icon">
+                      <span
+                        className={`ingestion-card-icon ${ingestionVisionProbeTone(
+                          ingestionVisionProbe,
+                        )}`}
+                        aria-hidden="true"
+                      >
+                        <AppIcon name="prompt" />
+                      </span>
+                      <div className="ingestion-card-title">
+                        <strong>{ingestionVisionProbe.model}</strong>
+                        <span>
+                          {fileName(ingestionVisionProbe.source)} /{" "}
+                          {ingestionVisionProbe.attachment_kind}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="ingestion-metrics">
+                      <VisualMetric
+                        icon="approval"
+                        label="status"
+                        value={ingestionVisionProbe.status}
+                        section="ingest"
+                        tone={ingestionVisionProbeTone(ingestionVisionProbe)}
+                      />
+                      <VisualMetric
+                        icon="artifact"
+                        label="source"
+                        value={ingestionVisionProbe.source_kind}
+                        section="ingest"
+                      />
+                      <VisualMetric
+                        icon="prompt"
+                        label="tokens"
+                        value={`${ingestionVisionProbe.tokens_in}/${ingestionVisionProbe.tokens_out}`}
+                        section="ingest"
+                      />
+                    </div>
+                    <div
+                      className={`ingestion-detail-row ${ingestionVisionProbeTone(
+                        ingestionVisionProbe,
+                      )}`}
+                    >
+                      <span
+                        className={`ingestion-detail-icon ${ingestionVisionProbeTone(
+                          ingestionVisionProbe,
+                        )}`}
+                        aria-hidden="true"
+                      >
+                        <AppIcon name="context" />
+                      </span>
+                      <div className="ingestion-detail-copy">
+                        <strong>Model response</strong>
+                        <span>{previewText(ingestionVisionProbe.response, 220)}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <ContextPreviewPayload
+                    title="Vision Check JSON"
+                    meta={rawPayloadMeta(ingestionVisionProbe)}
+                    icon="prompt"
+                  >
+                    <pre>{previewJson(ingestionVisionProbe)}</pre>
+                  </ContextPreviewPayload>
                 </div>
               ) : null}
               {ingestionBackends.length ? (
@@ -30447,8 +33278,8 @@ export default function App() {
                           <AppIcon name="ingest" />
                         </span>
                         <div className="ingestion-card-title">
-                          <strong>{backend.id}</strong>
-                          <span>{backend.name}</span>
+                          <strong>{backend.name || backend.id}</strong>
+                          <span>{backend.id}</span>
                         </div>
                       </div>
                       <div className="ingestion-detail-list">
@@ -30466,7 +33297,7 @@ export default function App() {
                             <AppIcon name="ingest" />
                           </span>
                           <div className="ingestion-detail-copy">
-                            <strong>Backend description</strong>
+                            <strong>Reader description</strong>
                             <span>
                               {backend.modalities.length
                                 ? `Modalities: ${backend.modalities.join(", ")}`
@@ -30528,6 +33359,13 @@ export default function App() {
                       </div>
                     </div>
                   ))}
+                  <ContextPreviewPayload
+                    title="Readers JSON"
+                    meta={rawPayloadMeta(ingestionBackends)}
+                    icon="ingest"
+                  >
+                    <pre>{previewJson(ingestionBackends)}</pre>
+                  </ContextPreviewPayload>
                 </div>
               ) : null}
               {ingestionArtifacts.length ? (
@@ -30714,7 +33552,7 @@ export default function App() {
                         className="advanced-controls"
                         style={sectionThemeStyle("ingest")}
                       >
-                        <summary title="Show ingestion artifact staging and rerun actions">
+                        <summary title="Show this artifact's review and rerun actions">
                           <span
                             className="advanced-controls-icon"
                             aria-hidden="true"
@@ -30722,32 +33560,32 @@ export default function App() {
                             <AppIcon name="ingest" />
                           </span>
                           <span className="advanced-controls-copy">
-                            <strong>More</strong>
-                            <span>Stage findings or rerun this artifact</span>
+                            <strong>Artifact review</strong>
+                            <span>Findings and rerun</span>
                           </span>
                         </summary>
                         <div className="button-grid">
                           <button
                             type="button"
-                            title="Move this artifact id into the Target id field."
+                            title="Use this artifact as the Target."
                             onClick={() => setOpsId(artifact.id)}
                             disabled={running}
                           >
-                            <ButtonLabel icon="artifact">Set id</ButtonLabel>
+                            <ButtonLabel icon="artifact">Select</ButtonLabel>
                           </button>
                           {artifact.findings.length ? (
                             <button
                               type="button"
-                              title="Move this artifact id and first unreviewed finding index into the review controls."
+                              title="Use this artifact and first unreviewed finding in the review controls."
                               onClick={() => stageIngestFindingReview(artifact)}
                               disabled={running}
                             >
-                              <ButtonLabel icon="approval">Stage Finding</ButtonLabel>
+                              <ButtonLabel icon="approval">Review Finding</ButtonLabel>
                             </button>
                           ) : null}
                           <button
                             type="button"
-                            title="Re-run this artifact with the selected backend."
+                            title="Re-run this artifact with the selected source reader."
                             onClick={() => void rerunIngestId(artifact.id)}
                             disabled={running}
                           >
@@ -30757,6 +33595,13 @@ export default function App() {
                       </details>
                     </div>
                   ))}
+                  <ContextPreviewPayload
+                    title="Ingestion JSON"
+                    meta={rawPayloadMeta(ingestionArtifacts)}
+                    icon="ingest"
+                  >
+                    <pre>{previewJson(ingestionArtifacts)}</pre>
+                  </ContextPreviewPayload>
                 </div>
               ) : null}
             </div>
@@ -30777,7 +33622,7 @@ export default function App() {
                 {showArtifactGenerateAction ? (
                   <button
                     type="button"
-                    title="Generate a document artifact using Id as the format and Value as content."
+                    title="Generate a document artifact using Target as the format and Payload as content."
                     onClick={() => void generateArtifactFromOps()}
                     disabled={running}
                   >
@@ -30788,7 +33633,7 @@ export default function App() {
                   <>
                     <button
                       type="button"
-                      title="Show generated artifact Id."
+                      title="Show the Target generated artifact."
                       onClick={() => void showGeneratedArtifactFromOps()}
                       disabled={running}
                     >
@@ -30796,7 +33641,7 @@ export default function App() {
                     </button>
                     <button
                       type="button"
-                      title="Open generated artifact Id in the OS default app."
+                      title="Open the Target generated artifact in the OS default app."
                       onClick={() => void openGeneratedArtifactFromOps()}
                       disabled={running}
                     >
@@ -30804,7 +33649,7 @@ export default function App() {
                     </button>
                     <button
                       type="button"
-                      title="Download generated artifact Id to this device."
+                      title="Download the Target generated artifact to this device."
                       onClick={() => void downloadGeneratedArtifactFromOps()}
                       disabled={running}
                     >
@@ -30940,7 +33785,7 @@ export default function App() {
                           className="advanced-controls"
                           style={sectionThemeStyle("artifacts")}
                         >
-                          <summary title="Show artifact staging, export, and cache deletion actions">
+                          <summary title="Show artifact selection and file actions">
                             <span
                               className="advanced-controls-icon"
                               aria-hidden="true"
@@ -30948,18 +33793,18 @@ export default function App() {
                               <AppIcon name="artifact" />
                             </span>
                             <span className="advanced-controls-copy">
-                              <strong>More</strong>
-                              <span>Stage, export, or delete this artifact</span>
+                              <strong>Artifact files</strong>
+                              <span>Artifact export</span>
                             </span>
                           </summary>
                           <div className="button-grid">
                             <button
                               type="button"
-                              title="Move this artifact id into the Target id field."
+                              title="Use this artifact as the Target."
                               onClick={() => setOpsId(artifact.id)}
                               disabled={running}
                             >
-                              <ButtonLabel icon="artifact">Set id</ButtonLabel>
+                              <ButtonLabel icon="artifact">Select</ButtonLabel>
                             </button>
                             <button
                               type="button"
@@ -30999,15 +33844,22 @@ export default function App() {
                       </div>
                     );
                   })}
+                  <ContextPreviewPayload
+                    title="Artifacts JSON"
+                    meta={rawPayloadMeta(generatedArtifacts)}
+                    icon="artifact"
+                  >
+                    <pre>{previewJson(generatedArtifacts)}</pre>
+                  </ContextPreviewPayload>
                 </div>
-              ) : (
+              ) : generatedArtifactsListed ? (
                 <EmptyNote
                   section="artifacts"
                   icon="artifact"
-                  title="No generated artifacts loaded"
+                  title="Generated outputs"
                   detail="Generate, list, or preview an output before opening or exporting files."
                 />
-              )}
+              ) : null}
               {artifactPreview ? (
                 <div className="artifact-preview">
                   <div className="artifact-preview-head with-icon">
@@ -31050,7 +33902,7 @@ export default function App() {
                       </button>
                       <button
                         type="button"
-                        title="Export this generated artifact to Value, or to /tmp when Value is blank."
+                        title="Export this generated artifact to Payload, or to /tmp when Payload is blank."
                         onClick={() =>
                           void exportGeneratedArtifactFromOps(
                             artifactPreview.artifact.id,
@@ -31100,48 +33952,32 @@ export default function App() {
                   className="context-more-controls"
                   style={sectionThemeStyle("artifacts")}
                 >
-                  <summary title="Show artifact maintenance tools">
+                  <summary title="Show artifact library export and cache tools">
                     <span className="advanced-controls-icon" aria-hidden="true">
                       <AppIcon name="artifact" />
                     </span>
                     <span className="advanced-controls-copy">
-                      <strong>Artifact maintenance</strong>
-                      <span>Export generated files or remove cached artifacts</span>
+                      <strong>Artifact library</strong>
+                      <span>Generated outputs</span>
                     </span>
                   </summary>
-                  <div className="context-more-grid">
-                    <details
-                      className="advanced-controls"
-                      style={sectionThemeStyle("artifacts")}
+                  <div className="button-grid">
+                    <button
+                      type="button"
+                      title="Export the Target generated artifact to the path in Payload, or to /tmp when Payload is blank."
+                      onClick={() => void exportGeneratedArtifactFromOps()}
+                      disabled={running}
                     >
-                      <summary>
-                        <span className="advanced-controls-icon" aria-hidden="true">
-                          <AppIcon name="artifact" />
-                        </span>
-                        <span className="advanced-controls-copy">
-                          <strong>Cached artifacts</strong>
-                          <span>Export generated files or remove cached entries</span>
-                        </span>
-                      </summary>
-                      <div className="button-grid">
-                        <button
-                          type="button"
-                          title="Export generated artifact Id to the path in Value, or to /tmp when Value is blank."
-                          onClick={() => void exportGeneratedArtifactFromOps()}
-                          disabled={running}
-                        >
-                          <ButtonLabel icon="artifact">Export</ButtonLabel>
-                        </button>
-                        <button
-                          type="button"
-                          title="Delete generated artifact Id from the local artifact cache."
-                          onClick={() => void deleteGeneratedArtifactFromOps()}
-                          disabled={running}
-                        >
-                          <ButtonLabel icon="approval">Delete</ButtonLabel>
-                        </button>
-                      </div>
-                    </details>
+                      <ButtonLabel icon="artifact">Export</ButtonLabel>
+                    </button>
+                    <button
+                      type="button"
+                      title="Delete the Target generated artifact from the local artifact cache."
+                      onClick={() => void deleteGeneratedArtifactFromOps()}
+                      disabled={running}
+                    >
+                      <ButtonLabel icon="approval">Delete</ButtonLabel>
+                    </button>
                   </div>
                 </details>
               ) : null}
@@ -31160,7 +33996,7 @@ export default function App() {
                 </span>
                 <span className="advanced-controls-copy">
                   <strong>Voice tools</strong>
-                  <span>Capture, transcribe, speak</span>
+                  <span>Speech actions</span>
                 </span>
               </summary>
               <div className="operation-group">
@@ -31200,11 +34036,11 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  title="Stage voice_speak with composer text or the latest assistant answer."
+                  title="Prepare speech from composer text or the latest assistant answer."
                   onClick={() => stageVoiceSpeak()}
                   disabled={running || recordingVoice}
                 >
-                  <ButtonLabel icon="tools">Stage TTS</ButtonLabel>
+                  <ButtonLabel icon="tools">Prepare speech</ButtonLabel>
                 </button>
               </div>
               <div className={`artifact-card ${voiceActivityTone()}`}>
@@ -31231,14 +34067,14 @@ export default function App() {
                   <VisualMetric
                     icon="context"
                     label={`input ${voiceTriStateStatus(voiceInputEnabled)}`}
-                    value={voiceControlLabel(voiceInputBackend, "config")}
+                    value={voiceControlLabel(voiceInputBackend, "default")}
                     section="artifacts"
                     tone={voiceInputEnabled === "off" ? "warning" : "neutral"}
                   />
                   <VisualMetric
                     icon="prompt"
                     label={`output ${voiceTriStateStatus(voiceOutputEnabled)}`}
-                    value={voiceControlLabel(voiceOutputBackend, "config")}
+                    value={voiceControlLabel(voiceOutputBackend, "default")}
                     section="artifacts"
                     tone={voiceOutputEnabled === "off" ? "warning" : "neutral"}
                   />
@@ -31274,7 +34110,7 @@ export default function App() {
                     <div className="artifact-detail-copy">
                       <strong>Input model</strong>
                       <span>
-                        {voiceControlLabel(voiceInputModel, "configured model")}
+                        {voiceControlLabel(voiceInputModel, "default model")}
                       </span>
                     </div>
                   </div>
@@ -31294,7 +34130,7 @@ export default function App() {
                     <div className="artifact-detail-copy">
                       <strong>Output model</strong>
                       <span>
-                        {voiceControlLabel(voiceTtsModel, "configured model")}
+                        {voiceControlLabel(voiceTtsModel, "default model")}
                       </span>
                     </div>
                   </div>
@@ -31339,6 +34175,13 @@ export default function App() {
                     </div>
                   </div>
                 </div>
+                <ContextPreviewPayload
+                  title="Voice Status JSON"
+                  meta={rawPayloadMeta(currentVoiceStatusReport())}
+                  icon="audio"
+                >
+                  <pre>{previewJson(currentVoiceStatusReport())}</pre>
+                </ContextPreviewPayload>
               </div>
               {voicePreviewUrl || voiceCaptureArtifact ? (
                 <div className="voice-capture">
@@ -31372,6 +34215,13 @@ export default function App() {
             <details
               className="advanced-controls"
               style={sectionThemeStyle("chat")}
+              open={
+                agentConfigs.length > 0 ||
+                compactionRecords.length > 0 ||
+                compactionTransferStatus !== null ||
+                compactionLibraryListed ||
+                agentLibraryListed
+              }
             >
               <summary>
                 <span className="advanced-controls-icon" aria-hidden="true">
@@ -31379,7 +34229,7 @@ export default function App() {
                 </span>
                 <span className="advanced-controls-copy">
                   <strong>Chat library</strong>
-                  <span>Saved compactions and reusable agent presets</span>
+                  <span>Saved context and agents</span>
                 </span>
               </summary>
               <div className="operation-groups">
@@ -31398,7 +34248,7 @@ export default function App() {
                       <>
                         <button
                           type="button"
-                          title="Show compacted-context artifact Id and load its content into Value."
+                          title="Show the Target compacted-context artifact and load its content into Payload."
                           onClick={() => void showCompactionFromOps()}
                           disabled={running}
                         >
@@ -31406,7 +34256,7 @@ export default function App() {
                         </button>
                         <button
                           type="button"
-                          title="Use compacted-context artifact Id as the next manual compacted context."
+                          title="Use the Target compacted-context artifact as the next manual compacted context."
                           onClick={() => void useCompactionFromOps()}
                           disabled={running}
                         >
@@ -31535,7 +34385,7 @@ export default function App() {
                       <div className="mini-actions">
                         <button
                           type="button"
-                          title="Load this compacted context into Value."
+                          title="Load this compacted context into Payload."
                           onClick={() => {
                             setOpsId(record.id);
                             setOpsValue(record.content);
@@ -31557,11 +34407,18 @@ export default function App() {
                           <ButtonLabel icon="chat">Use</ButtonLabel>
                         </button>
                       </div>
+                      <ContextPreviewPayload
+                        title="Compaction JSON"
+                        meta={rawPayloadMeta(record)}
+                        icon="context"
+                      >
+                        <pre>{previewJson(record)}</pre>
+                      </ContextPreviewPayload>
                       <details
                         className="advanced-controls"
                         style={sectionThemeStyle("chat")}
                       >
-                        <summary title="Show compacted-context staging, export, and cleanup actions">
+                        <summary title="Show compacted-context selection and file actions">
                           <span
                             className="advanced-controls-icon"
                             aria-hidden="true"
@@ -31569,18 +34426,18 @@ export default function App() {
                             <AppIcon name="context" />
                           </span>
                           <span className="advanced-controls-copy">
-                            <strong>More</strong>
-                            <span>Stage, export, or delete this context</span>
+                            <strong>Context files</strong>
+                            <span>Context export</span>
                           </span>
                         </summary>
                         <div className="button-grid">
                           <button
                             type="button"
-                            title="Move this compaction id into the Target id field."
+                            title="Use this compaction as the Target."
                             onClick={() => setOpsId(record.id)}
                             disabled={running}
                           >
-                            <ButtonLabel icon="context">Set id</ButtonLabel>
+                            <ButtonLabel icon="context">Select</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -31621,77 +34478,76 @@ export default function App() {
                     </div>
                   ))}
                 </div>
-              ) : (
+              ) : compactionLibraryListed ? (
                 <EmptyNote
                   section="chat"
                   icon="context"
-                  title="No compacted context loaded"
+                  title="Saved context library"
                   detail="List saved artifacts or keep one from a context preview."
                 />
-              )}
+              ) : null}
                   {showCompactionTransferControls ? (
                     <details
                       className="context-more-controls"
                       style={sectionThemeStyle("chat")}
                     >
-                      <summary title="Show compacted-context transfer tools">
+                      <summary title="Show saved context import, export, and maintenance tools">
                         <span className="advanced-controls-icon" aria-hidden="true">
                           <AppIcon name="context" />
                         </span>
                         <span className="advanced-controls-copy">
-                          <strong>Compaction transfer</strong>
-                          <span>Import/export compacted context or delete saved artifacts</span>
+                          <strong>Context library</strong>
+                          <span>Saved context</span>
                         </span>
                       </summary>
-                      <div className="context-more-grid">
-                        <details
-                          className="advanced-controls"
-                          style={sectionThemeStyle("chat")}
-                        >
-                          <summary>
-                            <span className="advanced-controls-icon" aria-hidden="true">
-                              <AppIcon name="context" />
-                            </span>
-                            <span className="advanced-controls-copy">
-                              <strong>Context artifacts</strong>
-                              <span>Import, export, or delete compacted context</span>
-                            </span>
-                          </summary>
-                          <div className="button-grid">
-                            {showCompactionTransferTargetActions ? (
-                              <button
-                                type="button"
-                                title="Export compacted-context artifact Id to Value, or to /tmp when Value is blank."
-                                onClick={() => void exportCompactionFromOps()}
-                                disabled={running}
-                              >
-                                <ButtonLabel icon="artifact">Export Compact</ButtonLabel>
-                              </button>
-                            ) : null}
+                      {showCompactionTransferTargetActions ? (
+                        <div className="context-more-grid">
+                          <div className="button-grid context-more-grid-row">
+                            <button
+                              type="button"
+                              title="Export the Target compacted-context artifact to Payload, or to /tmp when Payload is blank."
+                              onClick={() => void exportCompactionFromOps()}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="artifact">Export Compact</ButtonLabel>
+                            </button>
                             {showCompactionTransferImportAction ? (
                               <button
                                 type="button"
-                                title="Import a compacted-context JSON artifact from the path in Value."
+                                title="Import a compacted-context JSON artifact from the path in Payload."
                                 onClick={() => void importCompactionFromOps()}
                                 disabled={running}
                               >
-                                <ButtonLabel icon="artifact">Import Compact</ButtonLabel>
+                                <ButtonLabel icon="artifact">
+                                  Import Compact
+                                </ButtonLabel>
                               </button>
                             ) : null}
-                            {showCompactionTransferTargetActions ? (
-                              <button
-                                type="button"
-                                className="danger"
-                                title="Delete compacted-context artifact Id."
-                                onClick={() => void deleteCompactionFromOps()}
-                                disabled={running}
-                              >
-                                <ButtonLabel icon="approval">Delete Compact</ButtonLabel>
-                              </button>
-                            ) : null}
+                            <button
+                              type="button"
+                              className="danger"
+                              title="Delete the Target compacted-context artifact."
+                              onClick={() => void deleteCompactionFromOps()}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="approval">Delete Compact</ButtonLabel>
+                            </button>
                           </div>
-                        </details>
-                      </div>
+                        </div>
+                      ) : (
+                        <div className="button-grid">
+                          {showCompactionTransferImportAction ? (
+                            <button
+                              type="button"
+                              title="Import a compacted-context JSON artifact from the path in Payload."
+                              onClick={() => void importCompactionFromOps()}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="artifact">Import Compact</ButtonLabel>
+                            </button>
+                          ) : null}
+                        </div>
+                      )}
                     </details>
                   ) : null}
                 </div>
@@ -31701,7 +34557,7 @@ export default function App() {
               <div className="button-grid">
                 <button
                   type="button"
-                  title="List saved agent configurations."
+                  title="List saved agents."
                   onClick={() => void reviewAgents()}
                   disabled={running}
                 >
@@ -31711,7 +34567,7 @@ export default function App() {
                   <>
                     <button
                       type="button"
-                      title="Show saved agent Id."
+                      title="Show the Target saved agent."
                       onClick={() => void showAgentFromOps()}
                       disabled={running}
                     >
@@ -31719,7 +34575,7 @@ export default function App() {
                     </button>
                     <button
                       type="button"
-                      title="Use agent Id and apply its saved setup to the visible controls."
+                      title="Use the Target saved agent and apply its saved settings to the visible controls."
                       onClick={() => void useAgentFromOps()}
                       disabled={running}
                     >
@@ -31730,7 +34586,7 @@ export default function App() {
                 {showAgentSaveAction ? (
                   <button
                     type="button"
-                    title="Save current setup as agent Id using Value as the system prompt."
+                    title="Save current settings as the Target saved agent using Payload as the system prompt."
                     onClick={() => void saveAgentFromOps()}
                     disabled={running}
                   >
@@ -31988,8 +34844,8 @@ export default function App() {
                                   <span>
                                     {savedAgent.load_memory ? "loaded" : "manual"} /{" "}
                                     {savedAgent.memory_backend
-                                      ? `backend ${savedAgent.memory_backend}`
-                                      : "default backend"}
+                                      ? `memory storage ${savedAgent.memory_backend}`
+                                      : "default memory storage"}
                                     {savedAgent.memory_model
                                       ? ` / model ${savedAgent.memory_model}`
                                       : ""}
@@ -32042,7 +34898,7 @@ export default function App() {
                         <div className="mini-actions">
                           <button
                             type="button"
-                            title="Use this saved agent and apply its saved setup to the visible controls."
+                            title="Use this saved agent and apply its saved settings to the visible controls."
                             onClick={() => void useAgent(doc.id)}
                             disabled={running}
                           >
@@ -32050,7 +34906,7 @@ export default function App() {
                           </button>
                           <button
                             type="button"
-                            title="Show this saved agent config."
+                            title="Show this saved agent."
                             onClick={() => void showAgent(doc.id)}
                             disabled={running}
                           >
@@ -32061,7 +34917,7 @@ export default function App() {
                           className="advanced-controls"
                           style={sectionThemeStyle("chat")}
                         >
-                          <summary title="Show saved-agent staging, export, and cleanup actions">
+                          <summary title="Show saved-agent selection and file actions">
                             <span
                               className="advanced-controls-icon"
                               aria-hidden="true"
@@ -32069,18 +34925,18 @@ export default function App() {
                               <AppIcon name="brand" />
                             </span>
                             <span className="advanced-controls-copy">
-                              <strong>More</strong>
-                              <span>Stage, export, or remove this agent</span>
+                              <strong>Agent files</strong>
+                              <span>Agent export</span>
                             </span>
                           </summary>
                           <div className="button-grid">
                             <button
                               type="button"
-                              title="Move this agent id into the Target id field."
+                              title="Use this agent as the Target."
                               onClick={() => setOpsId(doc.id)}
                               disabled={running}
                             >
-                              <ButtonLabel icon="brand">Set id</ButtonLabel>
+                              <ButtonLabel icon="brand">Select</ButtonLabel>
                             </button>
                             <button
                               type="button"
@@ -32114,7 +34970,7 @@ export default function App() {
                               title={
                                 sharedFrom
                                   ? "Revoke this profile grant to remove shared access."
-                                  : "Delete this saved agent config."
+                                  : "Delete this saved agent."
                               }
                               onClick={() => void deleteAgentFromOps(doc.id)}
                               disabled={running || sharedFrom != null}
@@ -32126,89 +34982,315 @@ export default function App() {
                       </div>
                     );
                   })}
+                  <ContextPreviewPayload
+                    title="Agents JSON"
+                    meta={rawPayloadMeta(agentConfigs)}
+                    icon="brand"
+                  >
+                    <pre>{previewJson(agentConfigs)}</pre>
+                  </ContextPreviewPayload>
                 </div>
-              ) : (
+              ) : agentLibraryListed ? (
                 <EmptyNote
                   section="chat"
                   icon="brand"
-                  title="No saved agents loaded"
-                  detail="List agents or save the current setup when it is ready to reuse."
+                  title="Saved agent library"
+                  detail="List agents or save the current settings for reuse."
                 />
-              )}
+              ) : null}
               {showAgentTransferControls ? (
                 <details
                   className="context-more-controls"
                   style={sectionThemeStyle("chat")}
                 >
-                  <summary title="Show saved-agent transfer tools">
+                  <summary title="Show saved-agent import, export, and maintenance tools">
                     <span className="advanced-controls-icon" aria-hidden="true">
                       <AppIcon name="brand" />
                     </span>
                     <span className="advanced-controls-copy">
-                      <strong>Agent transfer</strong>
-                      <span>Import/export portable agents or delete saved configs</span>
+                      <strong>Agent library</strong>
+                      <span>Saved agents</span>
                     </span>
                   </summary>
-                  <div className="context-more-grid">
-                    <details
-                      className="advanced-controls"
-                      style={sectionThemeStyle("chat")}
-                    >
-                      <summary>
-                        <span className="advanced-controls-icon" aria-hidden="true">
-                          <AppIcon name="brand" />
-                        </span>
-                        <span className="advanced-controls-copy">
-                          <strong>Saved agent files</strong>
-                          <span>Import, export, or delete portable configs</span>
-                        </span>
-                      </summary>
-                      <div className="button-grid">
-                        {showAgentTransferTargetActions ? (
-                          <button
-                            type="button"
-                            title="Export saved agent Id to Value, or to /tmp when Value is blank."
-                            onClick={() => void exportAgentFromOps()}
-                            disabled={running}
-                          >
-                            <ButtonLabel icon="artifact">Export Agent</ButtonLabel>
-                          </button>
-                        ) : null}
+                  {showAgentTransferTargetActions ? (
+                    <div className="context-more-grid">
+                      <div className="button-grid context-more-grid-row">
+                        <button
+                          type="button"
+                          title="Export the Target saved agent to Payload, or to /tmp when Payload is blank."
+                          onClick={() => void exportAgentFromOps()}
+                          disabled={running}
+                        >
+                          <ButtonLabel icon="artifact">Export Agent</ButtonLabel>
+                        </button>
                         {showAgentTransferImportAction ? (
                           <button
                             type="button"
-                            title="Import saved agent config from Value path."
+                            title="Import saved agent from Payload path."
                             onClick={() => void importAgentFromOps()}
                             disabled={running}
                           >
                             <ButtonLabel icon="artifact">Import Agent</ButtonLabel>
                           </button>
                         ) : null}
-                        {showAgentTransferTargetActions ? (
-                          <button
-                            type="button"
-                            className="danger"
-                            title={
-                              knownProfileGrantedAgent(opsId.trim())
-                                ? "This agent is shared from another profile; revoke the profile grant to remove access."
-                                : "Delete saved agent Id."
-                            }
-                            onClick={() => void deleteAgentFromOps()}
-                            disabled={
-                              running || knownProfileGrantedAgent(opsId.trim())
-                            }
-                          >
-                            <ButtonLabel icon="approval">Delete Agent</ButtonLabel>
-                          </button>
-                        ) : null}
+                        <button
+                          type="button"
+                          className="danger"
+                          title={
+                            knownProfileGrantedAgent(opsId.trim())
+                              ? "This agent is shared from another profile; revoke the profile grant to remove access."
+                              : "Delete saved agent Target."
+                          }
+                          onClick={() => void deleteAgentFromOps()}
+                          disabled={
+                            running || knownProfileGrantedAgent(opsId.trim())
+                          }
+                        >
+                          <ButtonLabel icon="approval">Delete Agent</ButtonLabel>
+                        </button>
                       </div>
-                    </details>
-                  </div>
+                    </div>
+                  ) : (
+                    <div className="button-grid">
+                      {showAgentTransferImportAction ? (
+                        <button
+                          type="button"
+                          title="Import saved agent from Payload path."
+                          onClick={() => void importAgentFromOps()}
+                          disabled={running}
+                        >
+                          <ButtonLabel icon="artifact">Import Agent</ButtonLabel>
+                        </button>
+                      ) : null}
+                    </div>
+                  )}
                 </details>
               ) : null}
                 </div>
               </div>
             </details>
+            ) : null}
+
+            {activeSection === "chat" && runtimeSettingsResult !== null ? (
+            <div className="operation-group">
+              <OperationTitle title="Runtime" section="chat" icon="setup" />
+              <div className="ingestion-review">
+                <div className="tool-card neutral">
+                  <div className="tool-card-head with-icon">
+                    <span className="tool-card-icon neutral" aria-hidden="true">
+                      <AppIcon name="setup" />
+                    </span>
+                    <div className="tool-card-title">
+                      <strong>Runtime settings</strong>
+                      <span>{runtimeSettingsSummary(runtimeSettingsResult)}</span>
+                    </div>
+                  </div>
+                  <div className="tool-metrics">
+                    <VisualMetric
+                      icon="setup"
+                      label="fields"
+                      value={runtimeSettingsFieldCount(runtimeSettingsResult)}
+                      section="chat"
+                    />
+                    <VisualMetric
+                      icon="control"
+                      label="transport"
+                      value={transport}
+                      section="chat"
+                    />
+                    <VisualMetric
+                      icon="context"
+                      label="payload"
+                      value={rawPayloadMeta(runtimeSettingsResult)}
+                      section="chat"
+                    />
+                  </div>
+                  <ContextPreviewPayload
+                    title="Runtime Settings JSON"
+                    meta={rawPayloadMeta(runtimeSettingsResult)}
+                    icon="setup"
+                  >
+                    <pre>{previewJson(runtimeSettingsResult)}</pre>
+                  </ContextPreviewPayload>
+                </div>
+              </div>
+            </div>
+            ) : null}
+
+            {activeSection === "chat" && directToolResult ? (
+            <div className="operation-group">
+              <OperationTitle title="Tool Result" section="chat" icon="tools" />
+              <div className="ingestion-review">
+                <div className={`tool-card ${directToolTone(directToolResult)}`}>
+                  <div className="tool-card-head with-icon">
+                    <span
+                      className={`tool-card-icon ${directToolTone(directToolResult)}`}
+                      aria-hidden="true"
+                    >
+                      <AppIcon name={directToolResult.kind === "shell" ? "control" : "tools"} />
+                    </span>
+                    <div className="tool-card-title">
+                      <strong>{directToolResultTitle(directToolResult)}</strong>
+                      <span>{directToolResultSummary(directToolResult)}</span>
+                    </div>
+                  </div>
+                  <div className="tool-metrics">
+                    <VisualMetric
+                      icon={directToolResult.kind === "shell" ? "control" : "tools"}
+                      label="source"
+                      value={directToolResult.kind === "shell" ? "shell" : "tool"}
+                      section="chat"
+                      tone={directToolTone(directToolResult)}
+                    />
+                    <VisualMetric
+                      icon="tools"
+                      label="name"
+                      value={directToolResult.name}
+                      section="chat"
+                    />
+                    <VisualMetric
+                      icon="approval"
+                      label="status"
+                      value={directToolStatus(directToolResult.payload)}
+                      section="chat"
+                      tone={directToolTone(directToolResult)}
+                    />
+                    <VisualMetric
+                      icon="context"
+                      label="payload"
+                      value={rawPayloadMeta(directToolResult.payload)}
+                      section="chat"
+                    />
+                  </div>
+                  {directToolTextPreview(directToolResult.payload) ? (
+                    <div className="tool-detail-list">
+                      <div className={`tool-detail-row ${directToolTone(directToolResult)}`}>
+                        <span
+                          className={`tool-detail-icon ${directToolTone(directToolResult)}`}
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="prompt" />
+                        </span>
+                        <div className="tool-detail-copy">
+                          <strong>Preview</strong>
+                          <span>{directToolTextPreview(directToolResult.payload)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                  <ContextPreviewPayload
+                    title="Tool Output JSON"
+                    meta={rawPayloadMeta(directToolResult.payload)}
+                    icon={directToolResult.kind === "shell" ? "control" : "tools"}
+                  >
+                    <pre>{previewJson(directToolResult.payload)}</pre>
+                  </ContextPreviewPayload>
+                </div>
+              </div>
+            </div>
+            ) : null}
+
+            {activeSection === "chat" &&
+            (batchListResult !== null || batchDetailResult !== null) ? (
+            <div className="operation-group">
+              <OperationTitle title="Batches" section="chat" icon="trace" />
+              <div className="ingestion-review">
+                {batchListResult !== null ? (
+                  <div className="tool-card neutral">
+                    <div className="tool-card-head with-icon">
+                      <span className="tool-card-icon neutral" aria-hidden="true">
+                        <AppIcon name="trace" />
+                      </span>
+                      <div className="tool-card-title">
+                        <strong>Batch list</strong>
+                        <span>{batchPayloadSummary(batchListResult, "batch list")}</span>
+                      </div>
+                    </div>
+                    <div className="tool-metrics">
+                      <VisualMetric
+                        icon="trace"
+                        label="plans"
+                        value={batchPayloadCount(batchListResult) ?? "n/a"}
+                        section="chat"
+                        tone={
+                          (batchPayloadCount(batchListResult) ?? 0) > 0
+                            ? "ok"
+                            : "neutral"
+                        }
+                      />
+                      <VisualMetric
+                        icon="context"
+                        label="payload"
+                        value={rawPayloadMeta(batchListResult)}
+                        section="chat"
+                      />
+                    </div>
+                    <ContextPreviewPayload
+                      title="Batches JSON"
+                      meta={rawPayloadMeta(batchListResult)}
+                      icon="trace"
+                    >
+                      <pre>{previewJson(batchListResult)}</pre>
+                    </ContextPreviewPayload>
+                  </div>
+                ) : null}
+                {batchDetailResult !== null
+                  ? (() => {
+                      const batchDetailId = batchPayloadId(batchDetailResult);
+                      const showBatchTargetMetric =
+                        Boolean(activeOpsId) && activeOpsId !== batchDetailId;
+                      return (
+                        <div className="tool-card ok">
+                          <div className="tool-card-head with-icon">
+                            <span className="tool-card-icon ok" aria-hidden="true">
+                              <AppIcon name="trace" />
+                            </span>
+                            <div className="tool-card-title">
+                              <strong>{batchDetailId || "Batch detail"}</strong>
+                              <span>{batchPayloadSummary(batchDetailResult)}</span>
+                            </div>
+                          </div>
+                          <div className="tool-metrics">
+                            <VisualMetric
+                              icon="trace"
+                              label="items"
+                              value={batchPayloadCount(batchDetailResult) ?? "n/a"}
+                              section="chat"
+                              tone={
+                                (batchPayloadCount(batchDetailResult) ?? 0) > 0
+                                  ? "ok"
+                                  : "neutral"
+                              }
+                            />
+                            <VisualMetric
+                              icon="context"
+                              label="payload"
+                              value={rawPayloadMeta(batchDetailResult)}
+                              section="chat"
+                            />
+                            {showBatchTargetMetric ? (
+                              <VisualMetric
+                                icon="approval"
+                                label="target"
+                                value={activeOpsId}
+                                section="chat"
+                                tone="ok"
+                              />
+                            ) : null}
+                          </div>
+                          <ContextPreviewPayload
+                            title="Batch JSON"
+                            meta={rawPayloadMeta(batchDetailResult)}
+                            icon="trace"
+                          >
+                            <pre>{previewJson(batchDetailResult)}</pre>
+                          </ContextPreviewPayload>
+                        </div>
+                      );
+                    })()
+                  : null}
+              </div>
+            </div>
             ) : null}
 
             {activeSection === "chat" ? (
@@ -32230,6 +35312,7 @@ export default function App() {
                     const summary = visibleToolCatalogSummary(visibleTools);
                     const sensitiveTools =
                       summary.codeTools + summary.paymentTools + summary.shellTools;
+                    const readinessCards = sensitiveToolReadinessCards(summary);
                     const catalogTone = visibleTools.length ? "ok" : "neutral";
                     return (
                       <div className={`tool-card ${catalogTone}`}>
@@ -32259,7 +35342,7 @@ export default function App() {
                           />
                           <VisualMetric
                             icon="context"
-                            label="raw output"
+                            label="exact output"
                             value={summary.rawOutputTools}
                             section="chat"
                             tone={summary.rawOutputTools ? "warning" : "ok"}
@@ -32305,7 +35388,30 @@ export default function App() {
                               </span>
                             </div>
                           </div>
+                          {readinessCards.map((card) => (
+                            <div className={`tool-detail-row ${card.tone}`} key={card.title}>
+                              <span
+                                className={`tool-detail-icon ${card.tone}`}
+                                aria-hidden="true"
+                              >
+                                <AppIcon name={card.icon} />
+                              </span>
+                              <div className="tool-detail-copy">
+                                <strong>{card.title}</strong>
+                                <span>
+                                  {card.value} / {card.detail}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
                         </div>
+                        <ContextPreviewPayload
+                          title="Catalog JSON"
+                          meta={rawPayloadMeta(visibleTools)}
+                          icon="tools"
+                        >
+                          <pre>{previewJson(visibleTools)}</pre>
+                        </ContextPreviewPayload>
                       </div>
                     );
                   })()}
@@ -32431,7 +35537,7 @@ export default function App() {
                             className="advanced-controls"
                             style={sectionThemeStyle("chat")}
                           >
-                            <summary title="Show manual tool-call staging action">
+                            <summary title="Show tool preparation controls">
                               <span
                                 className="advanced-controls-icon"
                                 aria-hidden="true"
@@ -32439,18 +35545,18 @@ export default function App() {
                                 <AppIcon name="tools" />
                               </span>
                               <span className="advanced-controls-copy">
-                                <strong>More</strong>
-                                <span>Stage this tool call</span>
+                                <strong>Prepare tool</strong>
+                                <span>Tool staging</span>
                               </span>
                             </summary>
                             <div className="button-grid">
                               <button
                                 type="button"
-                                title="Stage this tool in Target id and Payload for a manual call."
+                                title="Prepare this tool in Target and Payload for a tool call."
                                 onClick={() => void stageToolFromPreview(tool)}
                                 disabled={running}
                               >
-                                <ButtonLabel icon="tools">Stage tool</ButtonLabel>
+                                <ButtonLabel icon="tools">Prepare</ButtonLabel>
                               </button>
                             </div>
                           </details>
@@ -32461,44 +35567,30 @@ export default function App() {
                     <EmptyNote
                       section="chat"
                       icon="tools"
-                      title="No visible tools loaded"
-                      detail="Run a catalog check before staging direct tool calls."
+                      title="Tool catalog empty"
+                      detail="The current catalog check returned no visible tools for tool calls."
                     />
                   )}
                 </>
-              ) : (
+              ) : showDormantToolCatalogPrompt ? (
                 <EmptyNote
                   section="chat"
                   icon="tools"
-                  title="No tool catalog loaded"
-                  detail="List tools before staging a manual call."
+                  title="Tool catalog"
+                  detail="List tools before preparing a tool call."
                 />
-              )}
+              ) : null}
               {showToolCallByIdControls ? (
-                <details
-                  className="advanced-controls"
-                  style={sectionThemeStyle("chat")}
-                >
-                  <summary>
-                    <span className="advanced-controls-icon" aria-hidden="true">
-                      <AppIcon name="tools" />
-                    </span>
-                    <span className="advanced-controls-copy">
-                      <strong>Call by ID</strong>
-                      <span>Use Target id and Payload for a manual tool call</span>
-                    </span>
-                  </summary>
-                  <div className="button-grid">
-                    <button
-                      type="button"
-                      title="Call the staged Target id with Payload as JSON input."
-                      onClick={() => void callToolFromOps()}
-                      disabled={running}
-                    >
-                      <ButtonLabel icon="tools">Call</ButtonLabel>
-                    </button>
-                  </div>
-                </details>
+                <div className="button-grid">
+                  <button
+                    type="button"
+                    title="Call Target with Payload as JSON input."
+                    onClick={() => void callToolFromOps()}
+                    disabled={running}
+                  >
+                    <ButtonLabel icon="tools">Call</ButtonLabel>
+                  </button>
+                </div>
               ) : null}
             </div>
             ) : null}
@@ -32521,12 +35613,12 @@ export default function App() {
                   onClick={() => void adapterDoctorFromOps()}
                   disabled={running}
                 >
-                  <ButtonLabel icon="trace">Doctor</ButtonLabel>
+                  <ButtonLabel icon="trace">Check</ButtonLabel>
                 </button>
                 {showAdapterImportAction ? (
                   <button
                     type="button"
-                    title="Import adapter manifest or package path from Value."
+                    title="Import adapter package path from Payload."
                     onClick={() => void importAdapterFromOps()}
                     disabled={running}
                   >
@@ -32537,7 +35629,7 @@ export default function App() {
                   <>
                     <button
                       type="button"
-                      title="Show adapter package Id."
+                      title="Show the Target adapter package."
                       onClick={() => void showAdapterFromOps()}
                       disabled={running}
                     >
@@ -32545,7 +35637,7 @@ export default function App() {
                     </button>
                     <button
                       type="button"
-                      title="Install OpenClaw adapter package Id as a quarantined skill."
+                      title="Install the Target OpenClaw adapter package as a skill for review."
                       onClick={() => void installAdapterSkillFromOps()}
                       disabled={running}
                     >
@@ -32567,7 +35659,7 @@ export default function App() {
                       <AppIcon name="adapter" />
                     </span>
                     <div className="adapter-doctor-title">
-                      <strong>Adapter doctor {adapterDoctorReport.status}</strong>
+                      <strong>Adapter health {adapterDoctorReport.status}</strong>
                       <span>
                         {adapterDoctorReport.ready_capability_count}/
                         {adapterDoctorReport.executable_capability_count} executable ready
@@ -32661,7 +35753,7 @@ export default function App() {
                     {adapterDoctorReport.quarantined_package_count} quarantined packages
                   </span>
                   <span>
-                    {adapterDoctorReport.metadata_only_capability_count} metadata-only /{" "}
+                    {adapterDoctorReport.metadata_only_capability_count} catalog-only /{" "}
                     {adapterDoctorReport.unsupported_capability_count} unsupported capabilities
                   </span>
                   <span>
@@ -32726,7 +35818,7 @@ export default function App() {
                         const packagePosture = [
                           pkg.quarantined ? "quarantined" : "allowed",
                           `${pkg.capability_count} capabilities`,
-                          `${pkg.metadata_only_capability_count} metadata-only`,
+                          `${pkg.metadata_only_capability_count} catalog-only`,
                           `${pkg.secret_requirement_count} secrets`,
                           `${pkg.finding_count} findings`,
                         ].join(" / ");
@@ -32846,7 +35938,7 @@ export default function App() {
                               className="advanced-controls"
                               style={sectionThemeStyle("adapters")}
                             >
-                              <summary title="Show adapter package staging and export actions">
+                              <summary title="Show adapter package selection and export actions">
                                 <span
                                   className="advanced-controls-icon"
                                   aria-hidden="true"
@@ -32854,18 +35946,18 @@ export default function App() {
                                   <AppIcon name="adapter" />
                                 </span>
                                 <span className="advanced-controls-copy">
-                                  <strong>More</strong>
-                                  <span>Stage or export this package</span>
+                                  <strong>Package files</strong>
+                                  <span>Package export</span>
                                 </span>
                               </summary>
                               <div className="button-grid">
                                 <button
                                   type="button"
-                                  title="Move this adapter package id into the Target id field."
+                                  title="Use this adapter package as the Target."
                                   onClick={() => setOpsId(pkg.id)}
                                   disabled={running}
                                 >
-                                  <ButtonLabel icon="adapter">Set id</ButtonLabel>
+                                  <ButtonLabel icon="adapter">Select</ButtonLabel>
                                 </button>
                                 <button
                                   type="button"
@@ -32920,10 +36012,10 @@ export default function App() {
                             .filter(Boolean)
                             .join(" / ");
                           const packageHighRisk = pkg.high_risk_finding_count > 0;
-                          const supportLabel = capability.support.replace(
-                            /_/g,
-                            " ",
-                          );
+                          const supportLabel =
+                            capability.support === "metadata_only"
+                              ? "catalog only"
+                              : capability.support.replace(/_/g, " ");
                           return (
                             <div
                               className={`adapter-doctor-capability-row ${capabilityTone}`}
@@ -33035,7 +36127,7 @@ export default function App() {
                                 className="advanced-controls"
                                 style={sectionThemeStyle("adapters")}
                               >
-                                <summary title="Show adapter package staging action">
+                                <summary title="Show adapter package selection action">
                                   <span
                                     className="advanced-controls-icon"
                                     aria-hidden="true"
@@ -33043,18 +36135,18 @@ export default function App() {
                                     <AppIcon name="adapter" />
                                   </span>
                                   <span className="advanced-controls-copy">
-                                    <strong>More</strong>
-                                    <span>Stage this package</span>
+                                    <strong>Package tools</strong>
+                                    <span>Select this package</span>
                                   </span>
                                 </summary>
                                 <div className="button-grid">
                                   <button
                                     type="button"
-                                    title="Move this adapter package id into the Target id field."
+                                    title="Use this adapter package as the Target."
                                     onClick={() => setOpsId(pkg.id)}
                                     disabled={running}
                                   >
-                                    <ButtonLabel icon="adapter">Set id</ButtonLabel>
+                                    <ButtonLabel icon="adapter">Select</ButtonLabel>
                                   </button>
                                 </div>
                               </details>
@@ -33064,6 +36156,60 @@ export default function App() {
                       )}
                     </div>
                   ) : null}
+                  <ContextPreviewPayload
+                    title="Health JSON"
+                    meta={rawPayloadMeta(adapterDoctorReport)}
+                    icon="adapter"
+                  >
+                    <pre>{previewJson(adapterDoctorReport)}</pre>
+                  </ContextPreviewPayload>
+                </div>
+              ) : null}
+              {clawHubResult ? (
+                <div
+                  className="adapter-doctor-card neutral"
+                  style={sectionThemeStyle("adapters")}
+                >
+                  <div className="adapter-doctor-head with-icon">
+                    <span
+                      className="adapter-doctor-icon neutral"
+                      aria-hidden="true"
+                    >
+                      <AppIcon name="adapter" />
+                    </span>
+                    <div className="adapter-doctor-title">
+                      <strong>ClawHub {clawHubActionLabel(clawHubResult.action)}</strong>
+                      <span>{clawHubResult.catalog}</span>
+                    </div>
+                  </div>
+                  <div className="adapter-doctor-metrics">
+                    <VisualMetric
+                      icon="adapter"
+                      label="action"
+                      value={clawHubResult.action}
+                      section="adapters"
+                    />
+                    <VisualMetric
+                      icon="context"
+                      label="payload"
+                      value={clawHubPayloadSummary(clawHubResult.payload)}
+                      section="adapters"
+                    />
+                    <VisualMetric
+                      icon="artifact"
+                      label={clawHubResult.id ? "entry" : "query"}
+                      value={clawHubResult.id || clawHubResult.query || "all"}
+                      section="adapters"
+                    />
+                  </div>
+                  <span>{clawHubResultLabel(clawHubResult)}</span>
+                  <ContextPreviewPayload
+                    title="ClawHub JSON"
+                    meta={rawPayloadMeta(clawHubResult.payload)}
+                    icon="adapter"
+                  >
+                    <pre>{previewJson(clawHubResult.payload)}</pre>
+                  </ContextPreviewPayload>
                 </div>
               ) : null}
               {adapterPackages.length ? (
@@ -33377,7 +36523,7 @@ export default function App() {
                           </button>
                           <button
                             type="button"
-                            title="Install this OpenClaw adapter as a quarantined skill."
+                            title="Install this OpenClaw adapter as a skill for review."
                             onClick={() => {
                               setOpsId(adapterPackage.id);
                               void installAdapterSkillFromOps(adapterPackage.id);
@@ -33405,7 +36551,7 @@ export default function App() {
                           className="advanced-controls"
                           style={sectionThemeStyle("adapters")}
                         >
-                          <summary title="Show adapter staging and export actions">
+                          <summary title="Show adapter selection and export actions">
                             <span
                               className="advanced-controls-icon"
                               aria-hidden="true"
@@ -33413,18 +36559,18 @@ export default function App() {
                               <AppIcon name="adapter" />
                             </span>
                             <span className="advanced-controls-copy">
-                              <strong>More</strong>
-                              <span>Stage or export this adapter</span>
+                              <strong>Adapter files</strong>
+                              <span>Adapter export</span>
                             </span>
                           </summary>
                           <div className="button-grid">
                             <button
                               type="button"
-                              title="Move this adapter package id into the Target id field."
+                              title="Use this adapter package as the Target."
                               onClick={() => setOpsId(adapterPackage.id)}
                               disabled={running}
                             >
-                              <ButtonLabel icon="adapter">Set id</ButtonLabel>
+                              <ButtonLabel icon="adapter">Select</ButtonLabel>
                             </button>
                             <button
                               type="button"
@@ -33457,14 +36603,23 @@ export default function App() {
                       </div>
                     );
                   })}
+                  <ContextPreviewPayload
+                    title="Adapter Packages JSON"
+                    meta={rawPayloadMeta(adapterPackages)}
+                    icon="adapter"
+                  >
+                    <pre>{previewJson(adapterPackages)}</pre>
+                  </ContextPreviewPayload>
                 </div>
               ) : null}
-              {!adapterDoctorReport && !adapterPackages.length ? (
+              {!adapterDoctorReport &&
+              !adapterPackages.length &&
+              adapterLibraryListed ? (
                 <EmptyNote
                   section="adapters"
                   icon="adapter"
-                  title="No adapter review loaded"
-                  detail="List adapters or run Doctor before changing quarantine policy."
+                  title="Adapter review queue"
+                  detail="List adapters or run a health check before changing review policy."
                 />
               ) : null}
               {showAdapterTransferControls ? (
@@ -33472,70 +36627,54 @@ export default function App() {
                   className="context-more-controls"
                   style={sectionThemeStyle("adapters")}
                 >
-                  <summary title="Show additional adapter settings">
+                  <summary title="Show adapter package import, export, and review controls">
                     <span className="advanced-controls-icon" aria-hidden="true">
                       <AppIcon name="adapter" />
                     </span>
                     <span className="advanced-controls-copy">
-                      <strong>Transfer</strong>
-                      <span>Manifests and quarantine policy</span>
+                      <strong>Adapter library</strong>
+                      <span>Packages and policy</span>
                     </span>
                   </summary>
-                  <div className="context-more-grid">
-                    <details
-                      className="advanced-controls"
-                      style={sectionThemeStyle("adapters")}
-                    >
-                      <summary>
-                        <span className="advanced-controls-icon" aria-hidden="true">
-                          <AppIcon name="approval" />
-                        </span>
-                        <span className="advanced-controls-copy">
-                          <strong>Adapter transfer</strong>
-                          <span>Import/export manifests and quarantine by id</span>
-                        </span>
-                      </summary>
-                      <div className="button-grid">
-                        {showAdapterTransferImportAction ? (
-                          <button
-                            type="button"
-                            title="Import portable adapter manifest JSON from Value."
-                            onClick={() => void importAdapterManifestFromOps()}
-                            disabled={running}
-                          >
-                            <ButtonLabel icon="artifact">Import Manifest</ButtonLabel>
-                          </button>
-                        ) : null}
-                        {showAdapterTransferTargetActions ? (
-                          <>
-                            <button
-                              type="button"
-                              title="Export adapter package Id to Value, or to /tmp when Value is blank."
-                              onClick={() => void exportAdapterFromOps()}
-                              disabled={running}
-                            >
-                              <ButtonLabel icon="artifact">Export Adapter</ButtonLabel>
-                            </button>
-                            <button
-                              type="button"
-                              title="Allow adapter package Id."
-                              onClick={() => void setAdapterQuarantine(true)}
-                              disabled={running}
-                            >
-                              <ButtonLabel icon="approval">Allow Adapter</ButtonLabel>
-                            </button>
-                            <button
-                              type="button"
-                              title="Block adapter package Id."
-                              onClick={() => void setAdapterQuarantine(false)}
-                              disabled={running}
-                            >
-                              <ButtonLabel icon="approval">Block Adapter</ButtonLabel>
-                            </button>
-                          </>
-                        ) : null}
-                      </div>
-                    </details>
+                  <div className="button-grid">
+                    {showAdapterTransferImportAction ? (
+                      <button
+                        type="button"
+                        title="Import portable adapter package JSON from Payload."
+                        onClick={() => void importAdapterManifestFromOps()}
+                        disabled={running}
+                      >
+                        <ButtonLabel icon="artifact">Import Package</ButtonLabel>
+                      </button>
+                    ) : null}
+                    {showAdapterTransferTargetActions ? (
+                      <>
+                        <button
+                          type="button"
+                          title="Export the Target adapter package to Payload, or to /tmp when Payload is blank."
+                          onClick={() => void exportAdapterFromOps()}
+                          disabled={running}
+                        >
+                          <ButtonLabel icon="artifact">Export Adapter</ButtonLabel>
+                        </button>
+                        <button
+                          type="button"
+                          title="Allow the Target adapter package."
+                          onClick={() => void setAdapterQuarantine(true)}
+                          disabled={running}
+                        >
+                          <ButtonLabel icon="approval">Allow Adapter</ButtonLabel>
+                        </button>
+                        <button
+                          type="button"
+                          title="Block the Target adapter package."
+                          onClick={() => void setAdapterQuarantine(false)}
+                          disabled={running}
+                        >
+                          <ButtonLabel icon="approval">Block Adapter</ButtonLabel>
+                        </button>
+                      </>
+                    ) : null}
                   </div>
                 </details>
               ) : null}
@@ -33554,8 +36693,8 @@ export default function App() {
                     <AppIcon name="memory" />
                   </span>
                   <span className="advanced-controls-copy">
-                    <strong>Maintenance</strong>
-                    <span>Bridges, bundles, storage</span>
+                    <strong>Bridge and storage</strong>
+                    <span>Delivery and storage</span>
                   </span>
                 </summary>
                 <div className="operation-group">
@@ -33653,7 +36792,7 @@ export default function App() {
                               <AppIcon name="artifact" />
                             </span>
                             <div className="bridge-detail-copy">
-                              <strong>Daemon x402</strong>
+                              <strong>Run endpoint x402</strong>
                               <span>
                                 {summary.daemonX402Enabled ? "on" : "off"}
                               </span>
@@ -33693,7 +36832,7 @@ export default function App() {
                                 <AppIcon name="approval" />
                               </span>
                               <div className="bridge-detail-copy">
-                                <strong>Daemon x402 config</strong>
+                                <strong>Run endpoint x402 settings</strong>
                                 <span title={previewJson(bridgeStatus.daemon_x402)}>
                                   {previewText(
                                     previewJson(bridgeStatus.daemon_x402),
@@ -33704,6 +36843,13 @@ export default function App() {
                             </div>
                           ) : null}
                         </div>
+                        <ContextPreviewPayload
+                          title="Status JSON"
+                          meta={rawPayloadMeta(bridgeStatus)}
+                          icon="conversation"
+                        >
+                          <pre>{previewJson(bridgeStatus)}</pre>
+                        </ContextPreviewPayload>
                       </div>
                     );
                   })()}
@@ -33811,7 +36957,7 @@ export default function App() {
                                 <AppIcon name="trace" />
                               </span>
                               <div className="bridge-detail-copy">
-                                <strong>Bridge metadata</strong>
+                                <strong>Bridge details</strong>
                                 <span title={previewJson(bridge)}>
                                   {previewText(previewJson(bridge), 220)}
                                 </span>
@@ -33902,7 +37048,7 @@ export default function App() {
                         className="advanced-controls"
                         style={sectionThemeStyle("adapters")}
                       >
-                        <summary title="Show delivery staging and deletion actions">
+                        <summary title="Show delivery selection and management actions">
                           <span
                             className="advanced-controls-icon"
                             aria-hidden="true"
@@ -33910,18 +37056,18 @@ export default function App() {
                             <AppIcon name="conversation" />
                           </span>
                           <span className="advanced-controls-copy">
-                            <strong>More</strong>
-                            <span>Stage or delete this delivery</span>
+                            <strong>Delivery actions</strong>
+                            <span>Delivery cleanup</span>
                           </span>
                         </summary>
                         <div className="button-grid">
                           <button
                             type="button"
-                            title="Move this delivery id into the Target id field."
+                            title="Use this delivery as the Target."
                             onClick={() => setOpsId(delivery.id)}
                             disabled={running}
                           >
-                            <ButtonLabel icon="conversation">Set id</ButtonLabel>
+                            <ButtonLabel icon="conversation">Select</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -33939,14 +37085,23 @@ export default function App() {
                     </div>
                   ))}
                 </div>
-              ) : (
+              ) : bridgeDeliveryListResult ? (
                 <EmptyNote
                   section="adapters"
                   icon="conversation"
-                  title="No bridge delivery dead letters loaded"
-                  detail="List failed deliveries when a messaging bridge needs retry or cleanup."
+                  title="Bridge delivery queue"
+                  detail="List failed deliveries when a messaging bridge needs retry or review."
                 />
-              )}
+              ) : null}
+              {bridgeDeliveryListResult ? (
+                <ContextPreviewPayload
+                  title="Deliveries JSON"
+                  meta={rawPayloadMeta(bridgeDeliveryListResult)}
+                  icon="conversation"
+                >
+                  <pre>{previewJson(bridgeDeliveryListResult)}</pre>
+                </ContextPreviewPayload>
+              ) : null}
               {bridgeDeliveryResult ? (
                 bridgeDeliveryResultCard(bridgeDeliveryResult)
               ) : null}
@@ -33954,56 +37109,40 @@ export default function App() {
                 className="context-more-controls"
                 style={sectionThemeStyle("adapters")}
               >
-                <summary title="Show additional bridge delivery settings">
+                <summary title="Show bridge retry and dead-letter actions">
                   <span className="advanced-controls-icon" aria-hidden="true">
                     <AppIcon name="trace" />
                   </span>
                   <span className="advanced-controls-copy">
-                    <strong>Dead letters</strong>
-                    <span>Retry and dead-letter cleanup</span>
+                    <strong>Failed deliveries</strong>
+                    <span>Retry queue</span>
                   </span>
                 </summary>
-                <div className="context-more-grid">
-                  <details
-                    className="advanced-controls"
-                    style={sectionThemeStyle("adapters")}
+                <div className="button-grid">
+                  <button
+                    type="button"
+                    title="Retry the bridge delivery in Target."
+                    onClick={() => void retryBridgeDeliveryFromOps()}
+                    disabled={running || transport !== "daemon" || !opsId.trim()}
                   >
-                    <summary>
-                      <span className="advanced-controls-icon" aria-hidden="true">
-                        <AppIcon name="trace" />
-                      </span>
-                      <span className="advanced-controls-copy">
-                        <strong>Delivery maintenance</strong>
-                        <span>Retry failed deliveries or remove dead-letter entries</span>
-                      </span>
-                    </summary>
-                    <div className="button-grid">
-                      <button
-                        type="button"
-                        title="Retry the bridge delivery in Target id."
-                        onClick={() => void retryBridgeDeliveryFromOps()}
-                        disabled={running || transport !== "daemon" || !opsId.trim()}
-                      >
-                        <ButtonLabel icon="trace">Retry staged</ButtonLabel>
-                      </button>
-                      <button
-                        type="button"
-                        title="Delete the bridge delivery in Target id without retrying."
-                        onClick={() => void deleteBridgeDeliveryFromOps()}
-                        disabled={running || transport !== "daemon" || !opsId.trim()}
-                      >
-                        <ButtonLabel icon="approval">Delete staged</ButtonLabel>
-                      </button>
-                      <button
-                        type="button"
-                        title="Retry all failed bridge deliveries up to the daemon batch limit."
-                        onClick={() => void retryAllBridgeDeliveriesFromOps()}
-                        disabled={running || transport !== "daemon"}
-                      >
-                        <ButtonLabel icon="trace">Retry all</ButtonLabel>
-                      </button>
-                    </div>
-                  </details>
+                    <ButtonLabel icon="trace">Retry Target</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="Delete the bridge delivery in Target without retrying."
+                    onClick={() => void deleteBridgeDeliveryFromOps()}
+                    disabled={running || transport !== "daemon" || !opsId.trim()}
+                  >
+                    <ButtonLabel icon="approval">Delete Target</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="Retry all failed bridge deliveries up to the server batch limit."
+                    onClick={() => void retryAllBridgeDeliveriesFromOps()}
+                    disabled={running || transport !== "daemon"}
+                  >
+                    <ButtonLabel icon="trace">Retry all</ButtonLabel>
+                  </button>
                 </div>
               </details>
                 </div>
@@ -34021,60 +37160,37 @@ export default function App() {
               </div>
               {bundleStatus ? (
                 <BundleStatusCard status={bundleStatus} section="adapters" />
-              ) : (
-                <EmptyNote
-                  section="adapters"
-                  icon="artifact"
-                  title="No bundle activity yet"
-                  detail="Create a backup before importing or exporting custom bundles."
-                />
-              )}
+              ) : null}
               <details
                 className="context-more-controls"
                 style={sectionThemeStyle("adapters")}
               >
-                <summary title="Show additional bundle settings">
+                <summary title="Show custom bundle import and export controls">
                   <span className="advanced-controls-icon" aria-hidden="true">
                     <AppIcon name="artifact" />
                   </span>
                   <span className="advanced-controls-copy">
                     <strong>Bundle files</strong>
-                    <span>Custom bundle import and export</span>
+                    <span>Custom bundle files</span>
                   </span>
                 </summary>
-                <div className="context-more-grid">
-                  <details
-                    className="advanced-controls"
-                    style={sectionThemeStyle("adapters")}
+                <div className="button-grid">
+                  <button
+                    type="button"
+                    title="Export bundle to Payload, or to a timestamped /tmp path when Payload is blank."
+                    onClick={() => void exportBundleFromOps()}
+                    disabled={running}
                   >
-                    <summary>
-                      <span className="advanced-controls-icon" aria-hidden="true">
-                        <AppIcon name="artifact" />
-                      </span>
-                      <span className="advanced-controls-copy">
-                        <strong>Bundle transfer</strong>
-                        <span>Export to a custom path or import an existing bundle</span>
-                      </span>
-                    </summary>
-                    <div className="button-grid">
-                      <button
-                        type="button"
-                        title="Export bundle to Value, or to a timestamped /tmp path when Value is blank."
-                        onClick={() => void exportBundleFromOps()}
-                        disabled={running}
-                      >
-                        <ButtonLabel icon="artifact">Export</ButtonLabel>
-                      </button>
-                      <button
-                        type="button"
-                        title="Import bundle from the path in Value."
-                        onClick={() => void importBundleFromOps()}
-                        disabled={running || !opsValue.trim()}
-                      >
-                        <ButtonLabel icon="artifact">Import</ButtonLabel>
-                      </button>
-                    </div>
-                  </details>
+                    <ButtonLabel icon="artifact">Export</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="Import bundle from the path in Payload."
+                    onClick={() => void importBundleFromOps()}
+                    disabled={running || !opsValue.trim()}
+                  >
+                    <ButtonLabel icon="artifact">Import</ButtonLabel>
+                  </button>
                 </div>
               </details>
                 </div>
@@ -34091,21 +37207,13 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  title="Plan cache-file pruning using Value as retention days."
+                  title="Plan cache-file pruning using Payload as retention days."
                   onClick={() => void storagePruneCacheFromOps(false)}
                   disabled={running || !opsValue.trim()}
                 >
                   <ButtonLabel icon="trace">Plan</ButtonLabel>
                 </button>
               </div>
-              {!storageReport && !storagePruneResult ? (
-                <EmptyNote
-                  section="adapters"
-                  icon="memory"
-                  title="No storage diagnostics loaded"
-                  detail="Run a storage report before planning cache maintenance."
-                />
-              ) : null}
               {storageReport ? (
                 <div className="storage-report">
                   {(() => {
@@ -34262,6 +37370,13 @@ export default function App() {
                               </div>
                             </div>
                           </div>
+                          <ContextPreviewPayload
+                            title="Report JSON"
+                            meta={rawPayloadMeta(storageReport)}
+                            icon="memory"
+                          >
+                            <pre>{previewJson(storageReport)}</pre>
+                          </ContextPreviewPayload>
                         </div>
                         <div className="storage-list">
                           {storageReport.buckets.map((bucket) => (
@@ -34444,6 +37559,13 @@ export default function App() {
                         </div>
                       </div>
                     </div>
+                    <ContextPreviewPayload
+                      title="Cache Prune JSON"
+                      meta={rawPayloadMeta(storagePruneResult)}
+                      icon="trace"
+                    >
+                      <pre>{previewJson(storagePruneResult)}</pre>
+                    </ContextPreviewPayload>
                     {storagePruneResult.dry_run ? (
                       <details
                         className="advanced-controls"
@@ -34457,8 +37579,8 @@ export default function App() {
                             <AppIcon name="approval" />
                           </span>
                           <span className="advanced-controls-copy">
-                            <strong>More</strong>
-                            <span>Apply this cleanup plan</span>
+                            <strong>Prune action</strong>
+                            <span>Apply this prune plan</span>
                           </span>
                         </summary>
                         <div className="button-grid">
@@ -34614,41 +37736,27 @@ export default function App() {
                 className="context-more-controls"
                 style={sectionThemeStyle("adapters")}
               >
-                <summary title="Show additional storage maintenance settings">
+                <summary title="Show cache pruning apply controls">
                   <span className="advanced-controls-icon" aria-hidden="true">
                     <AppIcon name="memory" />
                   </span>
                   <span className="advanced-controls-copy">
                     <strong>Cache pruning</strong>
-                    <span>Apply cache pruning after planning retention</span>
+                    <span>Planned cache cleanup</span>
                   </span>
                 </summary>
                 <div className="context-more-grid">
-                  <details
-                    className="advanced-controls"
-                    style={sectionThemeStyle("adapters")}
-                  >
-                    <summary>
-                      <span className="advanced-controls-icon" aria-hidden="true">
-                        <AppIcon name="approval" />
-                      </span>
-                      <span className="advanced-controls-copy">
-                        <strong>Storage maintenance</strong>
-                        <span>Apply cache pruning after choosing retention days</span>
-                      </span>
-                    </summary>
-                    <div className="button-grid">
-                      <button
-                        type="button"
-                        className="danger"
-                        title="Delete cache files older than the Value retention days."
-                        onClick={() => void storagePruneCacheFromOps(true)}
-                        disabled={running || !opsValue.trim()}
-                      >
-                        <ButtonLabel icon="approval">Apply</ButtonLabel>
-                      </button>
-                    </div>
-                  </details>
+                  <div className="button-grid context-more-grid-row">
+                    <button
+                      type="button"
+                      className="danger"
+                      title="Delete cache files older than the Payload retention days."
+                      onClick={() => void storagePruneCacheFromOps(true)}
+                      disabled={running || !opsValue.trim()}
+                    >
+                      <ButtonLabel icon="approval">Apply</ButtonLabel>
+                    </button>
+                  </div>
                 </div>
               </details>
                 </div>
@@ -34660,48 +37768,69 @@ export default function App() {
             className="advanced-controls"
             style={sectionThemeStyle(activeSection)}
           >
-            <summary title="Show staged value fields">
+            <summary title={`Show ${activeTaskInputCopy.title.toLowerCase()}`}>
               <span className="advanced-controls-icon" aria-hidden="true">
                 <AppIcon name={activeVisual.secondaryIcon} />
               </span>
               <span className="advanced-controls-copy">
-                <strong>Stage values</strong>
-                <span>Payload, target, and memory scope</span>
+                <strong>{activeTaskInputCopy.title}</strong>
+                <span>{taskInputSummaryDetail}</span>
               </span>
             </summary>
             <label>
               <FieldLabel icon={activeVisual.secondaryIcon} section={activeSection}>
-                Payload
+                {activeTaskInputCopy.payloadLabel}
               </FieldLabel>
               <textarea
                 className="ops-text"
                 value={opsValue}
                 onChange={(e) => setOpsValue(e.target.value)}
-                placeholder="file path, text, JSON, or command payload"
+                placeholder={activeTaskInputCopy.payloadPlaceholder}
                 disabled={running}
                 rows={3}
               />
             </label>
             <label>
               <FieldLabel icon={activeVisual.icon} section={activeSection}>
-                Target id
+                {activeTaskInputCopy.targetLabel}
               </FieldLabel>
               <input
                 value={opsId}
                 onChange={(e) => setOpsId(e.target.value)}
-                placeholder="tool, prompt, run, artifact, skill, or adapter id"
+                placeholder={activeTaskInputCopy.targetPlaceholder}
                 disabled={running}
               />
             </label>
-            <label className="switch">
-              <input
-                type="checkbox"
-                checked={opsUserMemory}
-                onChange={(e) => setOpsUserMemory(e.target.checked)}
-                disabled={running}
-              />
-              <ButtonLabel icon="memory">User memory</ButtonLabel>
-            </label>
+            {showUserMemoryScopeToggle ? (
+              <label
+                className="switch"
+                title="Use user memory for memory create, generate, import, export, or rollback actions instead of active-agent memory."
+              >
+                <input
+                  type="checkbox"
+                  checked={opsUserMemory}
+                  onChange={(e) => setOpsUserMemory(e.target.checked)}
+                  disabled={running}
+                />
+                <ButtonLabel icon="memory">User memory scope</ButtonLabel>
+              </label>
+            ) : null}
+            {hasStagedTaskInputs ? (
+              <div className="button-grid">
+                <button
+                  type="button"
+                  title="Clear the staged Payload, Target, and visible memory scope."
+                  onClick={() => {
+                    setOpsValue("");
+                    setOpsId("");
+                    if (showUserMemoryScopeToggle) setOpsUserMemory(false);
+                  }}
+                  disabled={running}
+                >
+                  <ButtonLabel icon="approval">Clear inputs</ButtonLabel>
+                </button>
+              </div>
+            ) : null}
           </details>
         </section>
         ) : null}
@@ -34837,7 +37966,7 @@ export default function App() {
                                 {approval.controller_agent}
                                 {approval.controller_scope?.length
                                   ? ` / ${approval.controller_scope.join(", ")}`
-                                  : " / default scope"}
+                                  : " / default review scope"}
                               </span>
                             </div>
                           </div>
@@ -34915,14 +38044,209 @@ export default function App() {
                   </div>
                 ))}
               </div>
-            ) : (
+            ) : approvalQueueReviewedRunId !== null &&
+              approvalQueueReviewedRunId === lastRunId ? (
               <EmptyNote
                 section="approvals"
                 icon="approval"
-                title="No approvals loaded"
+                title="Approval queue"
                 detail="Use Review after a run requests a gated action."
               />
-            )
+            ) : null
+          ) : null}
+          {activeSection === "approvals" &&
+          (approvalAssessmentResult || approvalExecutionResult) ? (
+            <div className="approval-list">
+              {approvalAssessmentResult ? (
+                (() => {
+                  const assessment = approvalAssessmentResult.payload.assessment;
+                  const tone = approvalAssessmentTone(assessment);
+                  return (
+                    <div className={`approval-card ${tone}`}>
+                      <div className="approval-card-head with-icon">
+                        <span
+                          className={`approval-card-icon ${tone}`}
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="profile" />
+                        </span>
+                        <div className="approval-card-title">
+                          <strong>Assessment result</strong>
+                          <span>{approvalAssessmentResult.approvalId}</span>
+                        </div>
+                        <span
+                          className={`approval-status ${approvalStatusClassForTone(
+                            tone,
+                          )}`}
+                        >
+                          {assessment.recommendation ?? assessment.status}
+                        </span>
+                      </div>
+                      <div className="approval-metrics">
+                        <VisualMetric
+                          icon="profile"
+                          label="controller"
+                          value={assessment.controller_agent}
+                          section="approvals"
+                          tone={tone}
+                        />
+                        <VisualMetric
+                          icon="trace"
+                          label="event"
+                          value={approvalAssessmentResult.payload.event_id}
+                          section="approvals"
+                        />
+                        <VisualMetric
+                          icon="setup"
+                          label="tokens"
+                          value={`${assessment.tokens_in}/${assessment.tokens_out}`}
+                          section="approvals"
+                        />
+                        <VisualMetric
+                          icon="control"
+                          label="duration"
+                          value={`${assessment.duration_ms}ms`}
+                          section="approvals"
+                        />
+                      </div>
+                      <div className="approval-detail-list">
+                        <div className={`approval-detail-row ${tone}`}>
+                          <span
+                            className={`approval-detail-icon ${tone}`}
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="prompt" />
+                          </span>
+                          <div className="approval-detail-copy">
+                            <strong>Summary</strong>
+                            <span>
+                              {approvalAssessmentResultSummary(
+                                approvalAssessmentResult,
+                              )}
+                            </span>
+                          </div>
+                        </div>
+                        {assessment.reason ? (
+                          <div className="approval-detail-row">
+                            <span
+                              className="approval-detail-icon"
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="context" />
+                            </span>
+                            <div className="approval-detail-copy">
+                              <strong>Reason</strong>
+                              <span>{previewText(assessment.reason, 180)}</span>
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                      <ContextPreviewPayload
+                        title="Assessment JSON"
+                        meta={rawPayloadMeta(approvalAssessmentResult.payload)}
+                        icon="profile"
+                      >
+                        <pre>{previewJson(approvalAssessmentResult.payload)}</pre>
+                      </ContextPreviewPayload>
+                    </div>
+                  );
+                })()
+              ) : null}
+              {approvalExecutionResult ? (
+                (() => {
+                  const tone = approvalExecutionTone(approvalExecutionResult);
+                  const preview = directToolTextPreview(
+                    approvalExecutionResult.payload,
+                  );
+                  return (
+                    <div className={`approval-card ${tone}`}>
+                      <div className="approval-card-head with-icon">
+                        <span
+                          className={`approval-card-icon ${tone}`}
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="tools" />
+                        </span>
+                        <div className="approval-card-title">
+                          <strong>Approved output</strong>
+                          <span>{approvalExecutionResult.approvalId}</span>
+                        </div>
+                        <span
+                          className={`approval-status ${approvalStatusClassForTone(
+                            tone,
+                          )}`}
+                        >
+                          {directToolStatus(approvalExecutionResult.payload)}
+                        </span>
+                      </div>
+                      <div className="approval-metrics">
+                        <VisualMetric
+                          icon="approval"
+                          label="approval"
+                          value={approvalExecutionResult.approvalId}
+                          section="approvals"
+                          tone={tone}
+                        />
+                        <VisualMetric
+                          icon="trace"
+                          label="run"
+                          value={approvalExecutionResult.runId.slice(0, 8)}
+                          section="approvals"
+                        />
+                        <VisualMetric
+                          icon="tools"
+                          label="status"
+                          value={directToolStatus(approvalExecutionResult.payload)}
+                          section="approvals"
+                          tone={tone}
+                        />
+                        <VisualMetric
+                          icon="context"
+                          label="payload"
+                          value={rawPayloadMeta(approvalExecutionResult.payload)}
+                          section="approvals"
+                        />
+                      </div>
+                      <div className="approval-detail-list">
+                        <div className={`approval-detail-row ${tone}`}>
+                          <span
+                            className={`approval-detail-icon ${tone}`}
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="tools" />
+                          </span>
+                          <div className="approval-detail-copy">
+                            <strong>Summary</strong>
+                            <span>{approvalExecutionSummary(approvalExecutionResult)}</span>
+                          </div>
+                        </div>
+                        {preview ? (
+                          <div className="approval-detail-row">
+                            <span
+                              className="approval-detail-icon"
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="prompt" />
+                            </span>
+                            <div className="approval-detail-copy">
+                              <strong>Preview</strong>
+                              <span>{preview}</span>
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                      <ContextPreviewPayload
+                        title="Approved Output JSON"
+                        meta={rawPayloadMeta(approvalExecutionResult.payload)}
+                        icon="tools"
+                      >
+                        <pre>{previewJson(approvalExecutionResult.payload)}</pre>
+                      </ContextPreviewPayload>
+                    </div>
+                  );
+                })()
+              ) : null}
+            </div>
           ) : null}
           {showRunControlActions ? (
             <div className="button-grid">
@@ -34953,7 +38277,7 @@ export default function App() {
               </button>
               <button
                 type="button"
-                title={`Stop current run and ${stopRetentionLabel(stopRetentionMode)}.`}
+                title={`Stop current run and ${stopRetentionActionLabel(stopRetentionMode)}.`}
                 onClick={() => void cancelLastRun()}
                 disabled={!running || !lastRunId}
               >
@@ -34971,18 +38295,15 @@ export default function App() {
           <details
             className="context-more-controls"
             style={sectionThemeStyle(runControlVisualSection)}
+            open={Boolean(resumePlan)}
           >
-            <summary title="Show run control settings">
+            <summary title="Show review and resume controls">
               <span className="advanced-controls-icon" aria-hidden="true">
                 <AppIcon name="control" />
               </span>
               <span className="advanced-controls-copy">
                 <strong>Run controls</strong>
-                <span>
-                  {activeSection === "approvals"
-                    ? "Identity, stop policy, scoring, and resume"
-                    : "Stop policy, scoring, and resume"}
-                </span>
+                <span>Review and resume</span>
               </span>
             </summary>
             <div className="context-more-grid">
@@ -34997,7 +38318,7 @@ export default function App() {
                     </span>
                     <span className="advanced-controls-copy">
                       <strong>Approval identity</strong>
-                      <span>Unlock secret, signature, and delegated controller</span>
+                      <span>Unlock, signature, controller</span>
                     </span>
                   </summary>
                   <label>
@@ -35046,7 +38367,7 @@ export default function App() {
               </span>
               <span className="advanced-controls-copy">
                 <strong>Stop policy</strong>
-                <span>Choose whether cancelled runs retain context</span>
+                <span>Context retention</span>
               </span>
             </summary>
             <fieldset className="operation-group">
@@ -35101,13 +38422,13 @@ export default function App() {
               </span>
               <span className="advanced-controls-copy">
                 <strong>Quality scoring</strong>
-                <span>Score the latest answer or staged target</span>
+                <span>Answer or Target</span>
               </span>
             </summary>
             <div className="button-grid">
               <button
                 type="button"
-                title="Score Id target using Value as 0-10; empty Id targets last_answer and empty Value records 10."
+                title="Score Target using Payload as 0-10; empty Target scores last_answer and empty Payload records 10."
                 onClick={() => void scoreLastRun()}
                 disabled={running || !lastRunId}
               >
@@ -35143,6 +38464,7 @@ export default function App() {
             className="advanced-controls"
             style={sectionThemeStyle(runControlVisualSection)}
             hidden={!showPostRunControlDisclosures}
+            open={Boolean(resumePlan)}
           >
             <summary>
               <span className="advanced-controls-icon" aria-hidden="true">
@@ -35150,7 +38472,7 @@ export default function App() {
               </span>
               <span className="advanced-controls-copy">
                 <strong>Resume controls</strong>
-                <span>Preview or restart from a run checkpoint</span>
+                <span>Plan or resume</span>
               </span>
             </summary>
             <fieldset className="operation-group">
@@ -35181,7 +38503,7 @@ export default function App() {
             <div className="button-grid">
               <button
                 type="button"
-                title="Resume the run id in the Id field, or the last run when Id is blank."
+                title="Resume the run in Target, or the last run when Target is blank."
                 onClick={() => void resumeLastRun()}
                 disabled={running || (!opsId.trim() && !lastRunId)}
               >
@@ -35189,7 +38511,7 @@ export default function App() {
               </button>
               <button
                 type="button"
-                title="Preview the generated resume prompt for Id, or the last run when Id is blank."
+                title="Preview the generated resume prompt for Target, or the last run when Target is blank."
                 onClick={() => void reviewResumePlanFromControls()}
                 disabled={running || (!opsId.trim() && !lastRunId)}
               >
@@ -35294,18 +38616,25 @@ export default function App() {
                 <div className="mini-actions">
                   <button
                     type="button"
-                    title="Copy the generated resume prompt into Value."
+                    title="Copy the generated resume prompt into Payload."
                     onClick={() => setOpsValue(resumePlan.prompt)}
                     disabled={running}
                   >
                     <ButtonLabel icon="prompt">Use Prompt</ButtonLabel>
                   </button>
                 </div>
+                <ContextPreviewPayload
+                  title="Plan JSON"
+                  meta={rawPayloadMeta(resumePlan)}
+                  icon="trace"
+                >
+                  <pre>{previewJson(resumePlan)}</pre>
+                </ContextPreviewPayload>
                 <details
                   className="advanced-controls"
                   style={sectionThemeStyle(runControlVisualSection)}
                 >
-                  <summary title="Show resume-plan staging action">
+                  <summary title="Show resume-plan selection action">
                     <span
                       className="advanced-controls-icon"
                       aria-hidden="true"
@@ -35313,18 +38642,18 @@ export default function App() {
                       <AppIcon name="trace" />
                     </span>
                     <span className="advanced-controls-copy">
-                      <strong>More</strong>
-                      <span>Stage this source run</span>
+                      <strong>Source run</strong>
+                      <span>Select source</span>
                     </span>
                   </summary>
                   <div className="button-grid">
                     <button
                       type="button"
-                      title="Move the resume source run id into the Target id field."
+                      title="Use this resume source run as the Target."
                       onClick={() => setOpsId(resumePlan.source_run_id)}
                       disabled={running}
                     >
-                      <ButtonLabel icon="trace">Set id</ButtonLabel>
+                      <ButtonLabel icon="trace">Select</ButtonLabel>
                     </button>
                   </div>
                 </details>
@@ -35390,6 +38719,7 @@ function slashCommandIcon(command: string): IconName {
     return "setup";
   }
   if (
+    normalized.startsWith("/exact") ||
     normalized.startsWith("/raw") ||
     normalized.startsWith("/simple") ||
     normalized.startsWith("/router") ||
@@ -35524,7 +38854,7 @@ function renderLineContent(line: TranscriptLine, actions?: StructuredResultActio
             <AppIcon name="context" />
           </span>
           <span className="structured-raw-copy">
-            <strong>Raw JSON</strong>
+            <strong>Result JSON</strong>
             <span>{structuredRawJsonMeta(parsed)}</span>
           </span>
         </summary>
